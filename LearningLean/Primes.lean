@@ -1,0 +1,3 @@
+-- goals:
+-- define prime numbers, prove enough basic theorems
+-- to show the numbers 0,...,p-1 for p prime are a field
