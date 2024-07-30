@@ -112,7 +112,7 @@ theorem prime_gt_one (p : Prime) : p.val > 1 := by
   have ne_1 : p.val ≠ 1 := p.prime.right.left
   have le_1 : 1 ≤ p.val := Nat.pos_of_ne_zero ne_0 |> Nat.succ_le_of_lt
   cases (Nat.lt_or_eq_of_le le_1) with
-  | inl lt_1 => apply lt_1
+  | inl lt_1 => assumption
   | inr eq_1 => exact absurd (Eq.symm eq_1) ne_1
 
 namespace Field
