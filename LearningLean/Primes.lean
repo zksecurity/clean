@@ -33,9 +33,12 @@ namespace Field
   def create (x : Nat) : Field p :=
     mk (x % p.val) (mod_smaller x)
 
+  instance : OfNat (Field p) n where
+    ofNat := create n
+
   -- constants
-  def zero : Field p := create 0
-  def one : Field p := create 1
+  def zero : Field p := 0
+  def one : Field p := 1
 
   -- create preserves field elements
   theorem create_eq (x : Field p) : x = create x.val := by
@@ -59,10 +62,10 @@ namespace Field
       _ = (create (x + y)).val := rfl
 
   -- addition: neutral element
-  theorem add_zero : x + zero = x := by
+  theorem add_zero : x + 0 = x := by
     rw [Field.mk.injEq]
     exact calc
-      (x + zero).val
+      (x + 0).val
       _ = x.val % p.val := rfl
       _ = x.val := Nat.mod_eq_of_lt x.less
 
@@ -80,4 +83,23 @@ namespace Field
     rw [create_eq x, create_eq y, create_eq z]
     repeat rw [create_add]
     rw [Nat.add_assoc]
+
+  -- additive inverse
+
+  instance : Neg (Field p) where
+    neg x := p.val - x.val |> create
+
+  theorem neg_add {p : Prime} (x : Field p) : -x + x = 0 := by
+    let xv := x.val
+    rw [Field.mk.injEq]
+    exact calc
+      (-x + x).val
+      _ = ((-x).val + xv) % p.val := rfl
+      _ = ((p.val - xv) % p.val + xv) % p.val := rfl
+      _ = (p.val - xv + xv) % p.val := by rw [Nat.mod_add_mod]
+      _ = p.val % p.val := by
+        have h : xv ≤ p.val := x.less |> Nat.le_of_lt
+        rw [Nat.sub_add_cancel h]
+      _ = 0 := by rw [Nat.mod_self]
+      _ = zero.val := rfl
 end Field
