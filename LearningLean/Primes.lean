@@ -33,17 +33,55 @@ namespace Field
   def create (x : Nat) : Field p :=
     mk (x % p.val) (mod_smaller x)
 
+  -- constants
+  def zero : Field p := create 0
+  def one : Field p := create 1
+
+  -- create preserves field elements
+  theorem create_eq (x : Field p) : create x.val = x := by
+    rw [Field.mk.injEq]
+    exact calc
+      (create x.val).val
+      _ = x.val % p.val := rfl
+      _ = x.val := Nat.mod_eq_of_lt x.less
+
   -- addition
+
   instance : Add (Field p) where
     add x y := x.val + y.val |> create
 
+  -- create preserves addition
+  theorem create_add {p : Prime} (x y : Nat) : @create p (x + y) = create x + create y := by
+    rw [Field.mk.injEq]
+    exact calc
+      (create (x + y)).val
+      _ = (x + y) % p.val := rfl
+      _ = (x % p.val + y % p.val) % p.val := by rw [Nat.add_mod]
+      _ = (create x + create y).val := rfl
+
   -- addition: neutral element
-
-  def zero : Field p := create 0
-
   theorem add_zero : x + zero = x := by
     rw [Field.mk.injEq]
     exact calc
-      (x + zero).val = x.val % p.val := rfl
-      _              = x.val         := Nat.mod_eq_of_lt x.less
+      (x + zero).val
+      _ = x.val % p.val := rfl
+      _ = x.val := Nat.mod_eq_of_lt x.less
+
+  -- addition: commutative
+  theorem add_comm (x y : Field p) : x + y = y + x := by
+    rw [Field.mk.injEq]
+    exact calc
+      (x + y).val
+      _ = (x.val + y.val) % p.val := rfl
+      _ = (y.val + x.val) % p.val := by rw [Nat.add_comm]
+      _ = (y + x).val := rfl
+
+  -- addition: associative
+  theorem add_assoc (x y z : Field p) : x + y + z = x + (y + z) := calc
+    x + y + z
+    _ = create x.val + create y.val + create z.val := by simp [create_eq]
+    _ = create (x.val + y.val + z.val) := by simp [create_add]
+    _ = create (x.val + (y.val + z.val)) := by rw [Nat.add_assoc]
+    _ = create x.val + (create y.val + create z.val) := by simp [create_add]
+    _ = x + (y + z) := by simp [create_eq]
 end Field
