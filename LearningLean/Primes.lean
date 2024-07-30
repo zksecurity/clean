@@ -41,6 +41,9 @@ namespace Field
 
   def zero : Field p := create 0
 
-  theorem neutral : x + zero = x := sorry
-
+  theorem add_zero : x + zero = x := by
+    rw [Field.mk.injEq]
+    exact calc
+      (x + zero).val = x.val % p.val := rfl
+      _              = x.val         := Nat.mod_eq_of_lt x.less
 end Field
