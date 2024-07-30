@@ -38,12 +38,11 @@ namespace Field
   def one : Field p := create 1
 
   -- create preserves field elements
-  theorem create_eq (x : Field p) : create x.val = x := by
+  theorem create_eq (x : Field p) : x = create x.val := by
     rw [Field.mk.injEq]
     exact calc
-      (create x.val).val
-      _ = x.val % p.val := rfl
-      _ = x.val := Nat.mod_eq_of_lt x.less
+    x.val = x.val % p.val := by rw [Nat.mod_eq_of_lt x.less]
+    _     = (create x.val).val := rfl
 
   -- addition
 
@@ -51,13 +50,13 @@ namespace Field
     add x y := x.val + y.val |> create
 
   -- create preserves addition
-  theorem create_add {p : Prime} (x y : Nat) : @create p (x + y) = create x + create y := by
+  theorem create_add {p : Prime} (x y : Nat) : create x + create y = @create p (x + y)  := by
     rw [Field.mk.injEq]
     exact calc
-      (create (x + y)).val
-      _ = (x + y) % p.val := rfl
-      _ = (x % p.val + y % p.val) % p.val := by rw [Nat.add_mod]
-      _ = (create x + create y).val := rfl
+      (create x + create y).val
+      _ = (x % p.val + y % p.val) % p.val := rfl
+      _ = (x + y) % p.val := by rw [← Nat.add_mod]
+      _ = (create (x + y)).val := rfl
 
   -- addition: neutral element
   theorem add_zero : x + zero = x := by
@@ -77,11 +76,8 @@ namespace Field
       _ = (y + x).val := rfl
 
   -- addition: associative
-  theorem add_assoc (x y z : Field p) : x + y + z = x + (y + z) := calc
-    x + y + z
-    _ = create x.val + create y.val + create z.val := by simp [create_eq]
-    _ = create (x.val + y.val + z.val) := by simp [create_add]
-    _ = create (x.val + (y.val + z.val)) := by rw [Nat.add_assoc]
-    _ = create x.val + (create y.val + create z.val) := by simp [create_add]
-    _ = x + (y + z) := by simp [create_eq]
+  theorem add_assoc (x y z : Field p) : x + y + z = x + (y + z) := by
+    rw [create_eq x, create_eq y, create_eq z]
+    repeat rw [create_add]
+    rw [Nat.add_assoc]
 end Field
