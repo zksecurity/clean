@@ -184,3 +184,43 @@ namespace Field
   theorem pow_add : x^(m + n) = x^m * x^n := by ext; simp; rw [Nat.pow_add]
   theorem cube : x^3 = x * x * x := by rw [pow_add x 2 1, square, pow_one]
 end Field
+
+-- now we have to prove enough group theory to get to little Fermat and inverses
+
+-- lemma for manipulating equation we need below
+-- TODO how to make this stuff easier??
+theorem move_plus_to_right {a b : Nat} (c : Nat) (h : a + c = b) : a = (b : Int) - c := by
+  have h1 : ↑(a + c) = (b : Int) := by rw [h];
+  rw [Int.natCast_add] at h1;
+  rw [← h1];
+  simp
+
+theorem Bezout's_Lemma (m n : Nat) : ∃ x y : Int, m*x + n*y = Nat.gcd m n := by
+  induction m, n using Nat.gcd.induction with
+  -- base case: `m = 0`
+  | H0 n =>
+    --  `gcd 0 n = n`, so `y = 1` does the job
+    simp; exists 1; simp
+  -- induction step: `m > 0` and we have a proof for `(n % m) * x + m * y = gcd (n % m) m`
+  | H1 m n _ ih =>
+    let ⟨x, y, h⟩ := ih -- unpack `∃ x y : h`
+    -- we rewrite the hypothesis until it looks like what we want
+
+    --  use `gcd m n = gcd (n % m) m`
+    rw [← Nat.gcd_rec m n] at h
+
+    -- rewrite `n % m = n - m * (n / m)`
+    have n_mod_eq : ↑(n % m) = (n : Int) - ↑m * ↑(n / m) := Nat.mod_add_div n m |> move_plus_to_right (m * (n / m))
+    rw [n_mod_eq] at h
+
+    -- now it's a matter to group by m instead of x
+    rw [Int.sub_mul, Int.mul_assoc, ] at h
+
+    have sub_add (a b c : Int) : a - b + c = a + (c - b) := by
+      rw [Int.sub_eq_add_neg, Int.add_assoc, Int.add_comm (-b), ← Int.sub_eq_add_neg]
+
+    rw [sub_add, ← Int.mul_sub, Int.add_comm] at h
+
+    -- now h is exactly what we want with these x and y
+    exists (y - ↑(n / m) * x)
+    exists x
