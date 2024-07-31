@@ -321,3 +321,22 @@ theorem Field.inv_exists (x : Field p) (gt_0 : x.val > 0) : ∃ x_inv : Field p,
   let pair : BezoutPair x p := ⟨ x_inv, y, existence ⟩
   let inv := inv_from_bezout_pair x gt_0 pair
   exact ⟨ inv.x_inv, inv.eq ⟩
+
+-- TODO the same thing but constructive
+-- "extended" gcd algorithm (Euclidean algorithm)
+
+-- def egcd (m n : Nat) : BezoutPair m n :=
+--   let rec loop (r0 r1 : Nat) (x0 x1 y0 y1 : Int) : Nat × Nat × Int × Int × Int × Int :=
+--     if r1 = 0 then
+--       ( r0, r1, x0, x1, y0, y1 )
+--     else
+--       let qotient := r0 / r1
+--       let (r0, r1) : Nat × Nat := (r1, r0 - qotient * r1)
+--       let (x0, x1) : Int × Int := (x1, x0 - qotient * x1)
+--       let (y0, y1) : Int × Int := (y1, y0 - qotient * y1)
+--       loop r0 r1 x0 x1 y0 y1
+--   termination_by r0
+--   decreasing_by simp_wf; apply Nat.mod_lt _ (Nat.zero_lt_of_ne_zero _); assumption
+
+--   let (r, _, x, y, _, _) := loop m n 1 0 0 1
+--   ⟨ x, y, Nat.gcd_eq_of_bezout r m n x y ⟩
