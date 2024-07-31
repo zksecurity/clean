@@ -76,6 +76,7 @@ namespace Field
 
   @[simp] theorem zero_val : (0 : Field p).val = 0 := rfl
   @[simp] theorem one_val : (1 : Field p).val = 1 := Nat.mod_eq_of_lt (Prime.gt_1 p)
+  @[simp] theorem one_mod : 1 % p.val = 1 := Nat.mod_eq_of_lt (Prime.gt_1 p)
 
   -- create preserves field elements
 
@@ -168,4 +169,18 @@ namespace Field
 
   theorem right_distrib : (x + y) * z = x * z + y * z := by
     ext; simp; rw [Nat.right_distrib]
+
+  -- exponentiation
+
+  instance : NatPow (Field p) where
+    -- TODO inefficient algorithm -- do we actually care?
+    pow x n := x.val ^ n |> create
+
+  @[simp] theorem pow_val : (x ^ n).val = (x.val ^ n) % p := by rfl
+
+  theorem pow_zero : x^0 = 1 := by ext; simp
+  theorem pow_one : x^1 = x := by ext; simp
+  theorem square : x^2 = x * x := by ext; simp; rw [Nat.pow_two]
+  theorem pow_add : x^(m + n) = x^m * x^n := by ext; simp; rw [Nat.pow_add]
+  theorem cube : x^3 = x * x * x := by rw [pow_add x 2 1, square, pow_one]
 end Field
