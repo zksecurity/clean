@@ -57,10 +57,10 @@ namespace Field
   /- a simple proof strategy for algebraic identities in the field is to lift them to Nat,
      i.e. `x + y = y + x` for all Fields holds because `(x + y) % p = (y + x) % p` for all Nats.
 
-     to execute that strategy, we:
-       1. use `ext` to reduce to an identity on the values `(x + y).val = (y + x).val`
-       2. use `simp` and known Nat facts to prove the Nat identity
-         - for that, we add lemmas to `simp` that expand field operations, like `(x + y).val = (x.val + y.val) % p`
+     to execute that strategy, we always start with `ext; simp;`:
+       1. `ext` reduces to an identity on the values `(x + y).val = (y + x).val`
+       2. `simp` is equipped with lemmas that expand field ops, like `(x + y).val = (x.val + y.val) % p`
+       3. we end up with something like `(x.val + y.val) % p = (y.val + x.val) % p` which is just `Nat.add_comm`
    -/
   @[ext] theorem ext {x y : Field p} (h : (x : Nat) = y) : x = y :=
     -- proof taken from Fin.ext
@@ -118,43 +118,43 @@ namespace Field
 
   theorem neg_add : -x + x = 0 := by ext; simp
   theorem add_neg : x + (-x) = 0 := by ext; simp
-end Field
-
-
-
-
-namespace Field
-  variable {p : Prime} (x y z : Field p)
 
   -- multiplication
 
   instance : Mul (Field p) where
     mul x y := x.val * y.val |> create
 
+  -- ext preserves multiplication
+  @[simp] theorem ext_mul : (x * y).val = (x.val * y.val) % p := by rfl
+
   -- create preserves multiplication
-  theorem create_mul {p : Prime} (x y : Nat) : create x * create y = @create p (x * y)  := by
-    rw [Field.mk.injEq]
-    exact calc
-      (create x * create y).val
-      _ = ((x % p) * (y % p)) % p := rfl
-      _ = (x * y) % p := by rw [← Nat.mul_mod]
-      _ = (create (x * y)).val := rfl
+  theorem create_mul {p : Prime} (x y : Nat) : create x * create y = @create p (x * y) := by
+    ext; simp; rw [← Nat.mul_mod]
 
   -- multiplication: neutral element
-  theorem mul_one : x * 1 = x := by
-    rw [create_eq x, create_eq 1]
-    rw [create_mul]
-    simp
+  theorem mul_one : x * 1 = x := by ext; simp
+  theorem one_mul : 1 * x = x := by ext; simp
 
   -- multiplication: commutative
   theorem mul_comm : x * y = y * x := by
-    rw [create_eq x, create_eq y]
-    simp [create_mul]
-    rw [Nat.mul_comm]
+    ext; simp; rw [Nat.mul_comm]
+
+  -- helpers for simp to pull out mod p
+  @[simp] theorem mod_mul (x y : Nat) : ((x % p) * (y % p)) % p = (x * y) % p := by
+    rw [Nat.mul_mod x]
+  @[simp] theorem mod_mul_right (x y : Nat) : (x * (y % p)) % p = (x * y) % p := by
+    rw [Nat.mul_mod]; rw [Nat.mod_mod]; rw [Nat.mul_mod x y]
+  @[simp] theorem mod_mul_left (x y : Nat) : ((x % p) * y) % p = (x * y) % p := by
+    rw [Nat.mul_mod]; rw [Nat.mod_mod]; rw [Nat.mul_mod x y]
 
   -- multiplication: associative
   theorem mul_assoc : x * y * z = x * (y * z) := by
-    rw [create_eq x, create_eq y, create_eq z]
-    simp [create_mul]
-    rw [Nat.mul_assoc]
+    ext; simp; rw [Nat.mul_assoc]
+
+  -- multiplication: distributive
+  theorem left_distrib : x * (y + z) = x * y + x * z := by
+    ext; simp; rw [Nat.left_distrib]
+
+  theorem right_distrib : (x + y) * z = x * z + y * z := by
+    ext; simp; rw [Nat.right_distrib]
 end Field
