@@ -35,7 +35,7 @@ structure Field (p : Prime) where
   less : val < p.val
 
 namespace Field
-  variable {p : Prime} (x y z : Field p)
+  variable {p : Prime} (x y z : Field p) (m n : Nat)
 
   -- taking a number mod p produces something < p
   theorem mod_smaller (x : Nat) : x % p < p :=
@@ -80,10 +80,10 @@ namespace Field
   -- create preserves field elements
 
   -- helpers for ext; simp
-  @[simp] theorem create_val (x : Nat) : (@create p x).val = x % p := rfl
+  @[simp] theorem create_val : (@create p n).val = n % p := rfl
   @[simp] theorem mod_noop : x.val % p = x.val := Nat.mod_eq_of_lt x.less
 
-  theorem create_eq (x : Field p) : x = create x.val := by ext; simp
+  theorem create_eq : x = create x.val := by ext; simp
 
   -- addition
 
@@ -94,7 +94,7 @@ namespace Field
   @[simp] theorem ext_add : (x + y).val = (x.val + y.val) % p := by rfl
 
   -- create preserves addition
-  theorem create_add {p : Prime} (x y : Nat) : create x + create y = @create p (x + y) := by ext; simp
+  theorem create_add {p : Prime} : create n + create m = @create p (n + m) := by ext; simp
 
   -- addition: neutral element
   theorem add_zero : x + 0 = x := by ext; simp
@@ -131,7 +131,7 @@ namespace Field
   @[simp] theorem ext_mul : (x * y).val = (x.val * y.val) % p := by rfl
 
   -- create preserves multiplication
-  theorem create_mul {p : Prime} (x y : Nat) : create x * create y = @create p (x * y) := by
+  theorem create_mul {p : Prime} : create n * create m = @create p (n * m) := by
     ext; simp; rw [← Nat.mul_mod]
 
   -- multiplication: neutral element
@@ -142,13 +142,11 @@ namespace Field
   theorem mul_comm : x * y = y * x := by
     ext; simp; rw [Nat.mul_comm]
 
-  -- helpers for simp to pull out mod p
-  @[simp] theorem mod_mul (x y : Nat) : ((x % p) * (y % p)) % p = (x * y) % p := by
-    rw [Nat.mul_mod x]
-  @[simp] theorem mod_mul_right (x y : Nat) : (x * (y % p)) % p = (x * y) % p := by
-    rw [Nat.mul_mod]; rw [Nat.mod_mod]; rw [Nat.mul_mod x y]
-  @[simp] theorem mod_mul_left (x y : Nat) : ((x % p) * y) % p = (x * y) % p := by
-    rw [Nat.mul_mod]; rw [Nat.mod_mod]; rw [Nat.mul_mod x y]
+  -- help simp to pull out mod p (for addition this already works)
+  @[simp] theorem mod_mul_right : (n * (m % p)) % p = (n * m) % p := by
+    rw [Nat.mul_mod]; rw [Nat.mod_mod]; rw [Nat.mul_mod n]
+  @[simp] theorem mod_mul_left : ((n % p) * m) % p = (n * m) % p := by
+    rw [Nat.mul_mod]; rw [Nat.mod_mod]; rw [Nat.mul_mod n]
 
   -- multiplication: associative
   theorem mul_assoc : x * y * z = x * (y * z) := by
