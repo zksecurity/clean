@@ -225,9 +225,9 @@ theorem Bezout's_Lemma (m n : Nat) : ∃ x y : Int, m*x + n*y = Nat.gcd m n := b
     exists (y - ↑(n / m) * x)
     exists x
 
--- to get an inverse of x mod p for x > 0, we need to apply Bezout's Lemma to x and p, using that gcd(x, p) = 1
+-- to get an inverse of x mod p (for x > 0), we need to apply Bezout's Lemma to x and p, using that gcd(x, p) = 1
 
-def Field.gcd_eq_1 (x : Field p) (gt_0 : x.val > 0) : Nat.gcd x p = 1 := by
+theorem Field.gcd_eq_1 (x : Field p) (gt_0 : x.val > 0) : Nat.gcd x p = 1 := by
   let d := Nat.gcd x p
 
   -- d = gcd(x,p) divides p, so it must be 1 or p
@@ -241,3 +241,63 @@ def Field.gcd_eq_1 (x : Field p) (gt_0 : x.val > 0) : Nat.gcd x p = 1 := by
   cases eq_1_or_p with
   | inl eq_1 => assumption
   | inr eq_p => contradiction
+
+-- helper: Int.ofNat is injective
+theorem coe_inj (n m : Nat) (h: (n : Int) = m) : n = m := by
+  match n, m, h with
+  | _, _, rfl => rfl
+
+theorem ceo_inj_0 (n : Nat) (h : (n : Int) = 0) : n = 0 := coe_inj n 0 h
+
+-- mul_mod theorem for Int, copied from Nat.mul_mod
+theorem mul_mod (a b n : Int) : a * b % n = (a % n) * (b % n) % n := by
+  rw (config := {occs := .pos [1]}) [← Int.emod_add_ediv a n]
+  rw (config := {occs := .pos [1]}) [← Int.emod_add_ediv b n]
+  rw [Int.add_mul, Int.mul_add, Int.mul_add,
+    Int.mul_assoc, Int.mul_assoc, ← Int.mul_add n, Int.add_mul_emod_self_left,
+    Int.mul_comm _ (n * (b / n)), Int.mul_assoc, Int.add_mul_emod_self_left]
+
+theorem mul_mod_right (a b n : Int) : a * (b % n) % n = a * b % n := by
+  rw [mul_mod, Int.emod_emod, ← mul_mod]
+theorem mul_mod_right' (a b n : Int) : a * b % n =  a * (b % n) % n :=
+  mul_mod_right a b n |> Eq.symm
+
+theorem Field.inv_exists (x : Field p) (gt_0 : x.val > 0) : ∃ x_inv : Field p, x * x_inv = 1 := by
+  let d := Nat.gcd x p
+  have eq_1 : d = 1 := Field.gcd_eq_1 x gt_0
+
+  let ⟨ x_inv, y, (h : x * x_inv + p * y = d)⟩ := Bezout's_Lemma x p
+
+  have h1 : (x * x_inv + p * y) % p = 1 % p := by rw [h]; rw [eq_1]; simp
+  have h2 : x * x_inv % p = 1 := by
+    rw [Int.mul_comm p y] at h1
+    rw [Int.add_mul_emod_self] at h1
+    have rhs_1 := Int.ofNat_emod 1 p |> Eq.symm
+    simp at rhs_1
+    simp [rhs_1] at h1
+    exact h1
+
+  -- from h2, we only have to reinterpret the Integer x_inv as a Field element > 0
+  let x_inv' : Nat := Int.natAbs (x_inv % p)
+
+  have p_ne_0 : (p: Int) ≠ 0 := by
+    intro p_eq_0
+    exact absurd (ceo_inj_0 p.val p_eq_0) p.prime.left
+
+  have t: x_inv' = x_inv % p := Int.natAbs_of_nonneg (@Int.emod_nonneg x_inv p.val p_ne_0)
+
+  rw [mul_mod_right'] at h2
+
+    -- have x_inv_ne_0 : x_inv ≠ 0 := by
+    -- intro x_inv_eq_0
+    -- have h2' := h2
+    -- rw [x_inv_eq_0] at h2'
+    -- rw [Int.mul_zero] at h2'
+    -- rw [Int.zero_emod] at h2'
+    -- contradiction
+
+
+structure BezoutPair (m n : Nat) where
+  x : Int
+  y : Int
+  eq : m*x + n*y = Nat.gcd m n
