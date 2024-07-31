@@ -50,7 +50,7 @@ namespace Field
   def create (x : Nat) : Field p :=
     mk (x % p) (mod_smaller x)
 
-  instance : OfNat (Field p) n where
+  instance ofNat : OfNat (Field p) n where
     ofNat := create n
 
   instance coeToNat : CoeOut (Field p) Nat :=
@@ -90,11 +90,11 @@ namespace Field
   instance : Add (Field p) where
     add x y := x.val + y.val |> create
 
-  -- ext preserves addition
-  @[simp] theorem ext_add : (x + y).val = (x.val + y.val) % p := by rfl
+  -- simp expands addition
+  @[simp] theorem add_val : (x + y).val = (x.val + y.val) % p := by rfl
 
   -- create preserves addition
-  theorem create_add {p : Prime} : create n + create m = @create p (n + m) := by ext; simp
+  theorem create_add : create n + create m = @create p (n + m) := by ext; simp
 
   -- addition: neutral element
   theorem add_zero : x + 0 = x := by ext; simp
@@ -113,7 +113,11 @@ namespace Field
   instance : Neg (Field p) where
     neg x := p - x.val |> create
 
+  instance : Sub (Field p) where
+    sub x y := x.val + (p - y.val) |> create
+
   @[simp] theorem neg_val : (-x).val = (p - x.val) % p := rfl
+  @[simp] theorem sub_val : (x - y).val = (x.val + (p - y.val)) % p := rfl
 
   -- helper facts for simp: x < p, x ≤ p
   @[simp] theorem lt_p : x.val < p := x.less
@@ -121,32 +125,38 @@ namespace Field
 
   theorem neg_add : -x + x = 0 := by ext; simp
   theorem add_neg : x + (-x) = 0 := by ext; simp
+  theorem add_sub : x - x = 0 := by ext; simp
+  theorem sub_def : x - y = x + (-y) := by ext; simp
+  theorem neg_zero : -(0 : Field p) = 0 := by ext; simp
 
   -- multiplication
 
   instance : Mul (Field p) where
     mul x y := x.val * y.val |> create
 
-  -- ext preserves multiplication
-  @[simp] theorem ext_mul : (x * y).val = (x.val * y.val) % p := by rfl
+  @[simp] theorem mul_val : (x * y).val = (x.val * y.val) % p := by rfl
+
+  -- help simp pull out mod p (for addition this already works)
+  @[simp] theorem mod_mul_right : (n * (m % p)) % p = (n * m) % p := by
+    rw [Nat.mul_mod]; rw [Nat.mod_mod]; rw [Nat.mul_mod n]
+
+  @[simp] theorem mod_mul_left : ((n % p) * m) % p = (n * m) % p := by
+    rw [Nat.mul_mod]; rw [Nat.mod_mod]; rw [Nat.mul_mod n]
 
   -- create preserves multiplication
-  theorem create_mul {p : Prime} : create n * create m = @create p (n * m) := by
-    ext; simp; rw [← Nat.mul_mod]
+  theorem create_mul : create n * create m = @create p (n * m) := by ext; simp
 
   -- multiplication: neutral element
   theorem mul_one : x * 1 = x := by ext; simp
   theorem one_mul : 1 * x = x := by ext; simp
 
+  -- multiplication by zero
+  theorem zero_mul : 0 * x = 0 := by ext; simp
+  theorem mul_zero : x * 0 = 0 := by ext; simp
+
   -- multiplication: commutative
   theorem mul_comm : x * y = y * x := by
     ext; simp; rw [Nat.mul_comm]
-
-  -- help simp to pull out mod p (for addition this already works)
-  @[simp] theorem mod_mul_right : (n * (m % p)) % p = (n * m) % p := by
-    rw [Nat.mul_mod]; rw [Nat.mod_mod]; rw [Nat.mul_mod n]
-  @[simp] theorem mod_mul_left : ((n % p) * m) % p = (n * m) % p := by
-    rw [Nat.mul_mod]; rw [Nat.mod_mod]; rw [Nat.mul_mod n]
 
   -- multiplication: associative
   theorem mul_assoc : x * y * z = x * (y * z) := by
