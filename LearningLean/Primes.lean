@@ -44,7 +44,9 @@ namespace Field
         |> Nat.pos_of_ne_zero
     show x % p < p from Nat.mod_lt x gt_zero
 
-  -- create field element from a Nat
+  /--
+  create a field element from a Nat, taking the number mod p.
+  -/
   def create (x : Nat) : Field p :=
     mk (x % p) (mod_smaller x)
 
@@ -54,14 +56,15 @@ namespace Field
   instance coeToNat : CoeOut (Field p) Nat :=
     ⟨fun v => v.val⟩
 
-  /- a simple proof strategy for algebraic identities in the field is to lift them to Nat,
-     i.e. `x + y = y + x` for all Fields holds because `(x + y) % p = (y + x) % p` for all Nats.
+  /--
+  a simple proof strategy for algebraic identities in the field is to lift them to Nat,
+  i.e. `x + y = y + x` for all Fields holds because `(x + y) % p = (y + x) % p` for all Nats.
 
-     to execute that strategy, we always start with `ext; simp;`:
-       1. `ext` reduces to an identity on the values `(x + y).val = (y + x).val`
-       2. `simp` is equipped with lemmas that expand field ops, like `(x + y).val = (x.val + y.val) % p`
-       3. we end up with something like `(x.val + y.val) % p = (y.val + x.val) % p` which is just `Nat.add_comm`
-   -/
+  to execute that strategy, we always start with `ext; simp;`:
+    1. `ext` reduces to an identity on the values `(x + y).val = (y + x).val`
+    2. `simp` is equipped with lemmas that expand field ops, like `(x + y).val = (x.val + y.val) % p`
+    3. we end up with something like `(x.val + y.val) % p = (y.val + x.val) % p` which is just `Nat.add_comm`
+  -/
   @[ext] theorem ext {x y : Field p} (h : (x : Nat) = y) : x = y :=
     -- proof taken from Fin.ext
     match x, y, h with
