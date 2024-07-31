@@ -224,3 +224,20 @@ theorem Bezout's_Lemma (m n : Nat) : ∃ x y : Int, m*x + n*y = Nat.gcd m n := b
     -- now h is exactly what we want with these x and y
     exists (y - ↑(n / m) * x)
     exists x
+
+-- to get an inverse of x mod p for x > 0, we need to apply Bezout's Lemma to x and p, using that gcd(x, p) = 1
+
+def Field.gcd_eq_1 (x : Field p) (gt_0 : x.val > 0) : Nat.gcd x p = 1 := by
+  let d := Nat.gcd x p
+
+  -- d = gcd(x,p) divides p, so it must be 1 or p
+  have div_p : d ∣ p := Nat.gcd_dvd_right x p
+  have eq_1_or_p : d = 1 ∨ d = p := p.prime.right.right d div_p
+
+  -- exclude the d = p case by showing d < p
+  have le_x : d ≤ x := Nat.gcd_le_left p gt_0
+  have lt_p : d < p := Nat.lt_of_le_of_lt le_x x.less
+  have ne_p : d ≠ p := Nat.ne_of_lt lt_p
+  cases eq_1_or_p with
+  | inl eq_1 => assumption
+  | inr eq_p => contradiction
