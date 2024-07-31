@@ -257,19 +257,19 @@ theorem mul_mod (a b n : Int) : a * b % n = (a % n) * (b % n) % n := by
     Int.mul_assoc, Int.mul_assoc, ← Int.mul_add n, Int.add_mul_emod_self_left,
     Int.mul_comm _ (n * (b / n)), Int.mul_assoc, Int.add_mul_emod_self_left]
 
-theorem mul_mod_right (a b n : Int) : a * (b % n) % n = a * b % n := by
-  rw [mul_mod, Int.emod_emod, ← mul_mod]
-theorem mul_mod_right' (a b n : Int) : a * b % n =  a * (b % n) % n :=
-  mul_mod_right a b n |> Eq.symm
+theorem mul_mod_right (a b n : Int) : a * b % n =  a * (b % n) % n := by
+  rw (config := {occs := .pos [2]}) [mul_mod]
+  rw [Int.emod_emod, ← mul_mod]
 
 theorem Field.inv_exists (x : Field p) (gt_0 : x.val > 0) : ∃ x_inv : Field p, x * x_inv = 1 := by
   let d := Nat.gcd x p
   have eq_1 : d = 1 := Field.gcd_eq_1 x gt_0
 
-  let ⟨ x_inv, y, (h : x * x_inv + p * y = d)⟩ := Bezout's_Lemma x p
+  let ⟨ x_inv', y, (h : x * x_inv' + p * y = d)⟩ := Bezout's_Lemma x p
 
-  have h1 : (x * x_inv + p * y) % p = 1 % p := by rw [h]; rw [eq_1]; simp
-  have h2 : x * x_inv % p = 1 := by
+  have h1 : (x * x_inv' + p * y) % p = 1 % p := by rw [h]; rw [eq_1]; simp
+
+  have h2 : x * x_inv' % p = 1 := by
     rw [Int.mul_comm p y] at h1
     rw [Int.add_mul_emod_self] at h1
     have rhs_1 := Int.ofNat_emod 1 p |> Eq.symm
@@ -278,24 +278,30 @@ theorem Field.inv_exists (x : Field p) (gt_0 : x.val > 0) : ∃ x_inv : Field p,
     exact h1
 
   -- from h2, we only have to reinterpret the Integer x_inv as a Field element > 0
-  let x_inv' : Nat := Int.natAbs (x_inv % p)
+  let x_inv : Nat := Int.natAbs (x_inv' % p)
 
   have p_ne_0 : (p: Int) ≠ 0 := by
     intro p_eq_0
     exact absurd (ceo_inj_0 p.val p_eq_0) p.prime.left
 
-  have t: x_inv' = x_inv % p := Int.natAbs_of_nonneg (@Int.emod_nonneg x_inv p.val p_ne_0)
+  have inv_to_nat: x_inv = x_inv' % p := Int.natAbs_of_nonneg (@Int.emod_nonneg x_inv' p.val p_ne_0)
 
-  rw [mul_mod_right'] at h2
+  -- now we can get rid of Ints and get an equation of Nats
+  have h3 : x * x_inv % p = 1 := by
+    rw [mul_mod_right] at h2
+    rw [← inv_to_nat] at h2
+    rw [← Int.ofNat_mul, ← Int.ofNat_emod] at h2
+    exact (coe_inj _ _ h2)
 
-    -- have x_inv_ne_0 : x_inv ≠ 0 := by
-    -- intro x_inv_eq_0
-    -- have h2' := h2
-    -- rw [x_inv_eq_0] at h2'
-    -- rw [Int.mul_zero] at h2'
-    -- rw [Int.zero_emod] at h2'
-    -- contradiction
+  -- move into the Field
+  let x_inv_f : Field p := create x_inv
+  exists x_inv_f
 
+  ext; simp;
+  have : x_inv_f.val = x_inv % p := by rfl
+  rw [this]
+  rw [Field.mod_mul_right]
+  exact h3
 
 structure BezoutPair (m n : Nat) where
   x : Int
