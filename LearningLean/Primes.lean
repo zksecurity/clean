@@ -186,12 +186,8 @@ end Field
 -- now we have to prove enough group theory to get to little Fermat and inverses
 
 -- lemma for manipulating equation we need below
--- TODO how to make this stuff easier??
 theorem move_plus_to_right {a b : Nat} (c : Nat) (h : a + c = b) : a = (b : Int) - c := by
-  have h1 : ↑(a + c) = (b : Int) := by rw [h];
-  rw [Int.natCast_add] at h1;
-  rw [← h1];
-  simp
+  rw [← h]; simp;
 
 theorem Bezout's_Lemma (m n : Nat) : ∃ x y : Int, m*x + n*y = Nat.gcd m n := by
   induction m, n using Nat.gcd.induction with
@@ -212,7 +208,7 @@ theorem Bezout's_Lemma (m n : Nat) : ∃ x y : Int, m*x + n*y = Nat.gcd m n := b
     rw [n_mod_eq] at h
 
     -- now it's a matter to group by m instead of x
-    rw [Int.sub_mul, Int.mul_assoc, ] at h
+    rw [Int.sub_mul, Int.mul_assoc] at h
 
     have sub_add (a b c : Int) : a - b + c = a + (c - b) := by
       rw [Int.sub_eq_add_neg, Int.add_assoc, Int.add_comm (-b), ← Int.sub_eq_add_neg]
@@ -225,7 +221,7 @@ theorem Bezout's_Lemma (m n : Nat) : ∃ x y : Int, m*x + n*y = Nat.gcd m n := b
 
 -- to get an inverse of x mod p (for x > 0), we need to apply Bezout's Lemma to x and p, using that gcd(x, p) = 1
 
-theorem Field.gcd_eq_1 (x : Field p) (gt_0 : x.val > 0) : Nat.gcd x p = 1 := by
+theorem Field.gcd_eq_1 {x : Field p} (gt_0 : x.val > 0) : Nat.gcd x p = 1 := by
   let d := Nat.gcd x p
 
   -- d = gcd(x,p) divides p, so it must be 1 or p
@@ -240,24 +236,19 @@ theorem Field.gcd_eq_1 (x : Field p) (gt_0 : x.val > 0) : Nat.gcd x p = 1 := by
   | inl eq_1 => assumption
   | inr eq_p => contradiction
 
--- helper: Int.ofNat is injective
-theorem coe_inj (n m : Nat) (h: (n : Int) = m) : n = m := by
-  match n, m, h with
-  | _, _, rfl => rfl
-
-theorem ceo_inj_0 (n : Nat) (h : (n : Int) = 0) : n = 0 := coe_inj n 0 h
-
--- mul_mod theorem for Int, copied from Nat.mul_mod
-theorem mul_mod (a b n : Int) : a * b % n = (a % n) * (b % n) % n := by
-  rw (config := {occs := .pos [1]}) [← Int.emod_add_ediv a n]
-  rw (config := {occs := .pos [1]}) [← Int.emod_add_ediv b n]
+-- mul_mod theorem for Int, proof copied from Nat.mul_mod
+theorem Int.mul_mod (a b p : Int) : a * b % p = (a % p) * (b % p) % p := by
+  rw (config := {occs := .pos [1]}) [← Int.emod_add_ediv a p]
+  rw (config := {occs := .pos [1]}) [← Int.emod_add_ediv b p]
   rw [Int.add_mul, Int.mul_add, Int.mul_add,
-    Int.mul_assoc, Int.mul_assoc, ← Int.mul_add n, Int.add_mul_emod_self_left,
-    Int.mul_comm _ (n * (b / n)), Int.mul_assoc, Int.add_mul_emod_self_left]
+    Int.mul_assoc, Int.mul_assoc, ← Int.mul_add p, Int.add_mul_emod_self_left,
+    Int.mul_comm _ (p * (b / p)), Int.mul_assoc, Int.add_mul_emod_self_left]
 
-theorem mul_mod_right (a b n : Int) : a * b % n =  a * (b % n) % n := by
-  rw (config := {occs := .pos [2]}) [mul_mod]
-  rw [Int.emod_emod, ← mul_mod]
+-- we really want simp to be good with mod p simplifications
+@[simp] theorem Int.mul_mod_right (a b p : Int) : a * (b % p) % p = a * b % p := by
+  rw [Int.mul_mod, Int.emod_emod, ← Int.mul_mod]
+@[simp] theorem Int.mul_mod_left (a b p : Int) : (a % p) * b % p = a * b % p := by
+  rw [Int.mul_mod, Int.emod_emod, ← Int.mul_mod]
 
 -- how to get an inverse from Bezout's Lemma
 structure BezoutPair (m n : Nat) where
@@ -271,33 +262,28 @@ structure Inverse (x : Field p) where
 
 def inv_from_bezout_pair (x : Field p) (gt_0 : x.val > 0) (pair: BezoutPair x p) : Inverse x := by
   let d := Nat.gcd x p
-  have d_eq_1 : d = 1 := Field.gcd_eq_1 x gt_0
+  have d_eq_1 : d = 1 := x.gcd_eq_1 gt_0
 
   let ⟨ x_inv', y, (h : x * x_inv' + p * y = d)⟩ := pair
 
-  have eq1 : (x * x_inv' + p * y) % p = 1 % p := by rw [h]; rw [d_eq_1]; simp
+  -- simplify the Bezout equation h into an equation mod p
+  have eq1 : (x * x_inv' + p * y) % p = 1 := by
+    rw [h, d_eq_1, ← Int.ofNat_emod]; simp
 
   have eq2 : x * x_inv' % p = 1 := by
-    rw [Int.mul_comm p y] at eq1
-    rw [Int.add_mul_emod_self] at eq1
-    have rhs_1 := Int.ofNat_emod 1 p |> Eq.symm
-    simp at rhs_1
-    simp [rhs_1] at eq1
-    exact eq1
+    simp at eq1; exact eq1
 
-  -- from h2, we only have to reinterpret the Integer x_inv as a Field element > 0
+  -- from eq2, we only have to reinterpret the Integer x_inv as a Field element > 0
   let x_inv : Nat := Int.natAbs (x_inv' % p)
 
-  have p_ne_0 : (p: Int) ≠ 0 := fun p_eq_0 => absurd (coe_inj p 0 p_eq_0) p.prime.left
+  have p_ne_0 : (p: Int) ≠ 0 := fun p_eq_0 => absurd (Int.ofNat_inj.mp p_eq_0) p.prime.left
 
-  have inv_to_nat: x_inv = x_inv' % p := Int.natAbs_of_nonneg (@Int.emod_nonneg x_inv' p.val p_ne_0)
+  have inv_to_nat: x_inv = x_inv' % p := Int.natAbs_of_nonneg (Int.emod_nonneg x_inv' p_ne_0)
 
   -- now we can get rid of Ints and get an equation of Nats
   have eq3 : x * x_inv % p = 1 := by
-    rw [mul_mod_right] at eq2
-    rw [← inv_to_nat] at eq2
-    rw [← Int.ofNat_mul, ← Int.ofNat_emod] at eq2
-    exact (coe_inj _ _ eq2)
+    apply Int.ofNat_inj.mp -- moves goal to Int
+    simp [inv_to_nat, eq2];
 
   -- move into the Field
   have eq4 : x * Field.create x_inv = 1 := by ext; simp [eq3];
@@ -306,8 +292,7 @@ def inv_from_bezout_pair (x : Field p) (gt_0 : x.val > 0) (pair: BezoutPair x p)
 -- non-constructive inverse from non-constructive Bezout's Lemma
 theorem Field.inv_exists (x : Field p) (gt_0 : x.val > 0) : ∃ x_inv : Field p, x * x_inv = 1 := by
   let ⟨ x_inv, y, existence ⟩ := Bezout's_Lemma x p
-  let pair : BezoutPair x p := ⟨ x_inv, y, existence ⟩
-  let inv := inv_from_bezout_pair x gt_0 pair
+  let inv := inv_from_bezout_pair x gt_0 ⟨ x_inv, y, existence ⟩
   exact ⟨ inv.x_inv, inv.eq ⟩
 
 -- TODO the same thing but constructive
