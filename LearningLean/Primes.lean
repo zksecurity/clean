@@ -136,10 +136,10 @@ namespace Field
   @[simp] theorem mul_val : (x * y).val = (x.val * y.val) % p := by rfl
 
   -- help simp pull out mod p (for addition this already works)
-  @[simp] theorem mod_mul_right : (n * (m % p)) % p = (n * m) % p := by
+  @[simp] theorem mul_mod_right : (n * (m % p)) % p = (n * m) % p := by
     rw [Nat.mul_mod]; rw [Nat.mod_mod]; rw [Nat.mul_mod n]
 
-  @[simp] theorem mod_mul_left : ((n % p) * m) % p = (n * m) % p := by
+  @[simp] theorem mul_mod_left : ((n % p) * m) % p = (n * m) % p := by
     rw [Nat.mul_mod]; rw [Nat.mod_mod]; rw [Nat.mul_mod n]
 
   -- create preserves multiplication
@@ -288,9 +288,7 @@ def inv_from_bezout_pair (x : Field p) (gt_0 : x.val > 0) (pair: BezoutPair x p)
   -- from h2, we only have to reinterpret the Integer x_inv as a Field element > 0
   let x_inv : Nat := Int.natAbs (x_inv' % p)
 
-  have p_ne_0 : (p: Int) ≠ 0 := by
-    intro p_eq_0
-    exact absurd (ceo_inj_0 p.val p_eq_0) p.prime.left
+  have p_ne_0 : (p: Int) ≠ 0 := fun p_eq_0 => absurd (coe_inj p 0 p_eq_0) p.prime.left
 
   have inv_to_nat: x_inv = x_inv' % p := Int.natAbs_of_nonneg (@Int.emod_nonneg x_inv' p.val p_ne_0)
 
@@ -302,16 +300,8 @@ def inv_from_bezout_pair (x : Field p) (gt_0 : x.val > 0) (pair: BezoutPair x p)
     exact (coe_inj _ _ eq2)
 
   -- move into the Field
-  let x_inv_f : Field p := Field.create x_inv
-
-  have eq4 : x * x_inv_f = 1 := by
-    ext; simp;
-    have : x_inv_f.val = x_inv % p := by rfl
-    rw [this]
-    rw [Field.mod_mul_right]
-    exact eq3
-
-  exact { x_inv := x_inv_f, eq := eq4 }
+  have eq4 : x * Field.create x_inv = 1 := by ext; simp [eq3];
+  exact { x_inv := Field.create x_inv, eq := eq4 }
 
 -- non-constructive inverse from non-constructive Bezout's Lemma
 theorem Field.inv_exists (x : Field p) (gt_0 : x.val > 0) : ∃ x_inv : Field p, x * x_inv = 1 := by
