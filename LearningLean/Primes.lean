@@ -19,12 +19,14 @@ namespace Prime
   instance coeToNat : CoeOut Prime Nat :=
     ⟨fun v => v.val⟩
 
+  theorem gt_0 (p : Prime) : p.val > 0 :=
+    (p.prime.left : p.val ≠ 0) |> Nat.pos_of_ne_zero
+
   -- lemma: primes are > 1
   -- TODO can we simplify this?
   theorem gt_1 (p : Prime) : p.val > 1 := by
-    have ne_0 : p.val ≠ 0 := p.prime.left
     have ne_1 : p.val ≠ 1 := p.prime.right.left
-    have le_1 : 1 ≤ p.val := Nat.pos_of_ne_zero ne_0 |> Nat.succ_le_of_lt
+    have le_1 : 1 ≤ p.val := p.gt_0 |> Nat.succ_le_of_lt
     cases (Nat.lt_or_eq_of_le le_1) with
     | inl lt_1 => assumption
     | inr eq_1 => exact absurd (Eq.symm eq_1) ne_1
@@ -38,11 +40,7 @@ namespace Field
   variable {p : Prime} (x y z : Field p) (m n : Nat)
 
   -- taking a number mod p produces something < p
-  theorem mod_smaller (x : Nat) : x % p < p :=
-    have gt_zero : p.val > 0 :=
-        (p.prime.left : p.val ≠ 0)
-        |> Nat.pos_of_ne_zero
-    show x % p < p from Nat.mod_lt x gt_zero
+  theorem mod_smaller (x : Nat) : x % p < p := Nat.mod_lt x p.gt_0
 
   /--
   create a field element from a Nat, taking the number mod p.
@@ -75,8 +73,8 @@ namespace Field
   def one : Field p := 1
 
   @[simp] theorem zero_val : (0 : Field p).val = 0 := rfl
-  @[simp] theorem one_val : (1 : Field p).val = 1 := Nat.mod_eq_of_lt (Prime.gt_1 p)
-  @[simp] theorem one_mod : 1 % p.val = 1 := Nat.mod_eq_of_lt (Prime.gt_1 p)
+  @[simp] theorem one_val : (1 : Field p).val = 1 := Nat.mod_eq_of_lt p.gt_1
+  @[simp] theorem one_mod : 1 % p.val = 1 := Nat.mod_eq_of_lt p.gt_1
 
   -- create preserves field elements
 
