@@ -71,7 +71,11 @@ theorem smaller1 : Bin (n + 1) n = n + 1 := by
     rw [Nat.add_comm]
 
 
-theorem k_reduction : ∀ n k, n > k →
+/--
+  This proves k_reduction but with the denominator multiplied out first so we don't have to
+  deal with the division in several places.
+-/
+theorem k_reduction' : ∀ n k, n > k →
 
   (k + 1) * (Bin n (k + 1)) = (n - k) * (Bin n k)
 
@@ -125,13 +129,68 @@ theorem k_reduction : ∀ n k, n > k →
 
         rw [factors_eq k n_gt_k, factors_eq (k + 1) n_gt_k1]
 
--- helper lemma (does this not exist??)
-theorem n_div_n : ∀ n, n > 0 -> n/n = 1 := fun n n_gt_0 => by
-  have : 1 * n/n = 1 := Nat.mul_div_cancel 1 n_gt_0
-  simp_all
+namespace DivisionHelpers
+  variable {n m k l : Nat}
+
+  private theorem n_div_n : n > 0 -> n/n = 1 := by
+    intro n_gt_0
+    have : 1 * n/n = 1 := Nat.mul_div_cancel 1 n_gt_0
+    simp_all
+
+  private theorem divide_both : n > 0 → n*m = k → m = k/n := by
+    intro a_gt_0 h
+    rw [← h, Nat.mul_div_cancel_left m a_gt_0]
+
+  private theorem mul_both_right (k : Nat) : n = m → n*k = m*k := by
+    intro n_eq_m
+    rw [n_eq_m]
+end DivisionHelpers
+
+/--
+  How to compute `(Bin n k)` from `(Bin n (k-1))`:
+
+  `(Bin n k) = (n-k+1)/k * (Bin n (k-1))`
+
+  Rolling that out to the right yields the explicit formula,
+
+  `(Bin n k) = (n-k+1)/k * (n-k+2)/(k-1) * ... * n/1 = n! / (n-k)! k!`
+-/
+theorem k_reduction : ∀ n k, n > k →
+
+  (Bin n (k + 1)) = (n - k) * (Bin n k) / (k + 1)
+
+  := fun n k n_gt_k =>
+    by simp [k_reduction' n k n_gt_k |> DivisionHelpers.divide_both _]
 
 
-theorem n_reduction : ∀ n k, Bin (n + 1) k = (n + 1)/(n - k + 1) * Bin n k := by
-  sorry
+/--
+`k_reduction` showed how to get the binomial coefficiant from smaller k, this one gets it from smaller n.
+
+`(Bin n k) = n/(n-k) * (Bin (n-1) k)`
+-/
+theorem n_reduction : ∀ n k, n ≥ k →
+
+  Bin (n + 1) k = (n + 1) * (Bin n k) / (n - k + 1)
+
+  := fun n k => by
+  cases k with
+  | zero => simp [zero, DivisionHelpers.n_div_n]
+  | succ k =>
+    intro (n_ge_k1 : n ≥ k + 1)
+    have n_gt_k : n > k := Nat.lt_of_succ_le n_ge_k1
+    have n1_gt_k : n + 1 > k := Nat.lt_succ_of_lt n_gt_k
+
+    simp [recursive n k]
+    repeat rw [k_reduction n k n_gt_k]
+
+    have k1_gt_0 : k + 1 > 0 := Nat.zero_lt_succ k
+
+    rw (config := {occs := .pos [2]}) [← Nat.mul_div_cancel_left (Bin n k) k1_gt_0]
+
+    -- multiply goal from both sides with k + 1
+    apply (Nat.mul_right_cancel k1_gt_0)
+
+    admit
+
 
 end Bin
