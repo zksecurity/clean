@@ -54,6 +54,9 @@ namespace Field
   instance coeToNat : CoeOut (Field p) Nat :=
     ⟨fun v => v.val⟩
 
+  instance : ToString (Field p) where
+    toString x := Nat.repr x.val
+
   /--
   a simple proof strategy for algebraic identities in the field is to lift them to Nat,
   i.e. `x + y = y + x` for all Fields holds because `(x + y) % p = (y + x) % p` for all Nats.
