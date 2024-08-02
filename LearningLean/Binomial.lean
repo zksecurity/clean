@@ -75,7 +75,7 @@ theorem smaller1 : Bin (n + 1) n = n + 1 := by
   This proves k_reduction but with the denominator multiplied out first so we don't have to
   deal with the division in several places.
 -/
-theorem k_reduction'' : ∀ n k, n > k →
+theorem k_reduction' : ∀ n k, n > k →
 
   (k + 1) * (Bin n (k + 1)) = (n - k) * (Bin n k)
 
@@ -130,13 +130,13 @@ theorem k_reduction'' : ∀ n k, n > k →
         rw [factors_eq k n_gt_k, factors_eq (k + 1) n_gt_k1]
 
 -- strengthen the theorem to work for n = k
-theorem k_reduction' {n k : Nat} : n ≥ k →
+theorem k_reduction {n k : Nat} : n ≥ k →
 
   (k + 1) * (Bin n (k + 1)) = (n - k) * (Bin n k)
 
   := fun n_ge_k =>
     match Nat.eq_or_lt_of_le n_ge_k with
-    | Or.inr n_gt_k => k_reduction'' n k n_gt_k
+    | Or.inr n_gt_k => k_reduction' n k n_gt_k
     | Or.inl n_eq_k => by simp [n_eq_k, greater1 n]
 
 
@@ -170,18 +170,18 @@ end DivisionHelpers
 
   `(Bin n k) = (n-k+1)/k * (n-k+2)/(k-1) * ... * n/1 = n! / (n-k)! k!`
 -/
-theorem k_reduction {n k : Nat} : n ≥ k →
+theorem k_reduction_div {n k : Nat} : n ≥ k →
 
   (Bin n (k + 1)) = (n - k) * (Bin n k) / (k + 1)
 
   := fun n_ge_k =>
-    by simp [k_reduction' n_ge_k |> DivisionHelpers.divide_both _]
+    by simp [k_reduction n_ge_k |> DivisionHelpers.divide_both _]
 
 theorem k_reduction_dvd : ∀ n k, n ≥ k → (k + 1) ∣ (n - k) * (Bin n k) :=
   fun n k n_ge_k => by
     exists (Bin n (k + 1))
     apply Eq.symm
-    exact (k_reduction' n_ge_k)
+    exact (k_reduction n_ge_k)
 
 /--
   Something like this is missing from Nat
@@ -211,7 +211,7 @@ theorem n_reduction {n k : Nat} : n ≥ k →
 
     simp [recursive n k]
 
-    have l1 : (n - (k + 1) + 1) = n - k := by
+    have l1 : n - (k + 1) + 1 = n - k := by
       rw [Nat.sub_succ, ← Nat.succ_eq_add_one, Nat.succ_pred nmk_ne_0]
     rw [l1]
 
@@ -230,8 +230,9 @@ theorem n_reduction {n k : Nat} : n ≥ k →
       have : n + 1 ≥ n := Nat.lt_succ_self n |> Nat.le_of_lt
       rw [Nat.neg_sub this n_ge_k, Nat.add_sub_cancel_left, Nat.add_comm]
     rw [l4]
+
     apply Eq.symm
-    exact (k_reduction' n_ge_k)
+    exact (k_reduction n_ge_k)
 
 
 end Bin
