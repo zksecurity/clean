@@ -75,7 +75,7 @@ theorem smaller1 : Bin (n + 1) n = n + 1 := by
   This proves k_reduction but with the denominator multiplied out first so we don't have to
   deal with the division in several places.
 -/
-theorem k_reduction' : ∀ n k, n > k →
+theorem k_reduction'' : ∀ n k, n > k →
 
   (k + 1) * (Bin n (k + 1)) = (n - k) * (Bin n k)
 
@@ -130,13 +130,13 @@ theorem k_reduction' : ∀ n k, n > k →
         rw [factors_eq k n_gt_k, factors_eq (k + 1) n_gt_k1]
 
 -- strengthen the theorem to work for n = k
-theorem k_reduction'' : ∀ n k, n ≥ k →
+theorem k_reduction' {n k : Nat} : n ≥ k →
 
   (k + 1) * (Bin n (k + 1)) = (n - k) * (Bin n k)
 
-  := fun n k n_ge_k =>
+  := fun n_ge_k =>
     match Nat.eq_or_lt_of_le n_ge_k with
-    | Or.inr n_gt_k => k_reduction' n k n_gt_k
+    | Or.inr n_gt_k => k_reduction'' n k n_gt_k
     | Or.inl n_eq_k => by simp [n_eq_k, greater1 n]
 
 
@@ -170,78 +170,68 @@ end DivisionHelpers
 
   `(Bin n k) = (n-k+1)/k * (n-k+2)/(k-1) * ... * n/1 = n! / (n-k)! k!`
 -/
-theorem k_reduction : ∀ n k, n ≥ k →
+theorem k_reduction {n k : Nat} : n ≥ k →
 
   (Bin n (k + 1)) = (n - k) * (Bin n k) / (k + 1)
 
-  := fun n k n_ge_k =>
-    by simp [k_reduction'' n k n_ge_k |> DivisionHelpers.divide_both _]
+  := fun n_ge_k =>
+    by simp [k_reduction' n_ge_k |> DivisionHelpers.divide_both _]
 
 theorem k_reduction_dvd : ∀ n k, n ≥ k → (k + 1) ∣ (n - k) * (Bin n k) :=
   fun n k n_ge_k => by
     exists (Bin n (k + 1))
     apply Eq.symm
-    exact (k_reduction'' n k n_ge_k)
+    exact (k_reduction' n_ge_k)
 
-theorem k_reduction_dvd' : ∀ n k, n ≥ k → (n - k) ∣ (k + 1) * (Bin n (k + 1)) :=
-  fun n k n_ge_k => by
-    exists (Bin n k)
-    exact (k_reduction'' n k n_ge_k)
-
+/--
+  Something like this is missing from Nat
+-/
+theorem Nat.neg_sub {a b : Nat} : a ≥ b → b ≥ c → a - (b - c) = a - b + c := by
+  intro a_ge_b b_ge_c
+  apply Nat.sub_eq_of_eq_add
+  rw [Nat.add_assoc, Nat.add_comm c, Nat.sub_add_cancel b_ge_c, Nat.sub_add_cancel a_ge_b]
 
 /--
 `k_reduction` showed how to get the binomial coefficiant from smaller k, this one gets it from smaller n.
 
 `(Bin n k) = n/(n-k) * (Bin (n-1) k)`
 -/
-theorem n_reduction : ∀ n k, n ≥ k →
+theorem n_reduction {n k : Nat} : n ≥ k →
 
-  Bin (n + 1) k = (n + 1) * (Bin n k) / (n - k + 1)
+  (n - k + 1) * Bin (n + 1) k = (n + 1) * (Bin n k)
 
-  := fun n k => by
+  := by
   cases k with
   | zero => simp [zero, DivisionHelpers.n_div_n]
   | succ k =>
     intro (n_ge_k1 : n ≥ k + 1)
     have n_gt_k : n > k := Nat.lt_of_succ_le n_ge_k1
     have n_ge_k : n ≥ k := Nat.le_of_succ_le n_ge_k1
-    have n1_ge_k1 : n + 1 ≥ k + 1 := Nat.le_succ_of_le n_ge_k1
-    have n1_gt_k : n + 1 > k := Nat.lt_succ_of_lt n_gt_k
-    have k1_gt_0 : k + 1 > 0 := Nat.zero_lt_succ k
-    have n1_mk1_gt : n - Nat.succ k + 1 > 0 := by simp;
-
-    have k1_dvd : (k + 1) ∣ (n - k) * Bin n k := k_reduction_dvd n k n_ge_k
-    -- have  :  n + 1 - Nat.succ k ∣ (n + 1) * Bin (n + 1) (Nat.succ k) := k_reduction_dvd' (n + 1) (Nat.succ k) n1_ge_k1
+    have nmk_ne_0 : n - k ≠ 0 := Nat.sub_ne_zero_of_lt n_gt_k
 
     simp [recursive n k]
 
-    -- apply (Nat.mul_right_cancel n1_mk1_gt)
+    have l1 : (n - (k + 1) + 1) = n - k := by
+      rw [Nat.sub_succ, ← Nat.succ_eq_add_one, Nat.succ_pred nmk_ne_0]
+    rw [l1]
 
-    -- rw [Nat.div_mul_cancel]
+    rw [Nat.left_distrib, Nat.add_comm]
 
-    repeat rw [k_reduction n k n_ge_k]
+    have l2 : ∀ {x y a b : Nat}, a ≥ b → x = (a-b)*y → x + b*y = a*y := by
+      intros _ _ _ _ a_ge_b eq
+      rw [eq, Nat.mul_sub_right_distrib, Nat.sub_add_cancel]
+      apply (Nat.mul_le_mul_right _ a_ge_b)
 
+    have l3 : n + 1 ≥ n - k := by simp [Nat.le_succ_of_le, Nat.sub_le]
 
-    -- rw (config := {occs := .pos [2]}) [← Nat.mul_div_cancel_left (Bin n k) k1_gt_0]
+    apply (l2 l3)
 
-    -- multiply goal from both sides with k + 1
-    apply (Nat.mul_right_cancel k1_gt_0)
-
-    -- get rid of first (k + 1) / (k + 1), prettify lhs
-    rw [Nat.right_distrib, Nat.mul_comm _ (k+1), ← (Nat.mul_div_assoc _ k1_dvd), Nat.mul_div_cancel_left _ k1_gt_0]
-    rw [Nat.mul_comm _ (k + 1), ← Nat.right_distrib]
-    have factors_eq : n - k + (k + 1) = n + 1 := by
-      rw [← Nat.sub_add_comm (Nat.le_of_lt n_gt_k), Nat.add_comm k, ← Nat.add_assoc, Nat.add_sub_cancel]
-    rw [factors_eq]
+    have l4 : n + 1 - (n - k) = k + 1 := by
+      have : n + 1 ≥ n := Nat.lt_succ_self n |> Nat.le_of_lt
+      rw [Nat.neg_sub this n_ge_k, Nat.add_sub_cancel_left, Nat.add_comm]
+    rw [l4]
     apply Eq.symm
-
-    -- get rid of common (n + 1) factor
-    rw [Nat.mul_comm _ (k + 1)]
-    -- apply (DivisionHelpers.mul_both_left (n + 1))
-    -- simp [← DivisionHelpers.mul_both_left (n + 1)]
-
-    -- simp [Nat.mul_comm, Nat.mul_div_cancel _ k1_gt_0, Nat.mul_div_cancel_left _ k1_gt_0, Nat.left_distrib]
-    admit
+    exact (k_reduction' n_ge_k)
 
 
 end Bin
