@@ -210,12 +210,15 @@ theorem n_reduction {n k : Nat} : n ≥ k →
     intro (n_ge_k1 : n ≥ k + 1)
     have n_gt_k : n > k := Nat.lt_of_succ_le n_ge_k1
     have n_ge_k : n ≥ k := Nat.le_of_succ_le n_ge_k1
-    have nmk_ne_0 : n - k ≠ 0 := Nat.sub_ne_zero_of_lt n_gt_k
 
+    -- after expanding `(Bin n+1 k)` with the recursive definition,
+    -- the goal is equivalent to the `k_reduction` theorem; just needs some algebraic manipulation
     simp [recursive n k]
 
+    show (n - (k + 1) + 1) * (Bin n (k + 1) + Bin n k) = (n + 1) * Bin n (k + 1)
+
     have l1 : n - (k + 1) + 1 = n - k := by
-      rw [Nat.sub_succ, ← Nat.succ_eq_add_one, Nat.succ_pred nmk_ne_0]
+      rw [Nat.sub_succ, ← Nat.succ_eq_add_one, Nat.succ_pred (Nat.sub_ne_zero_of_lt n_gt_k)]
     rw [l1]
 
     rw [Nat.left_distrib, Nat.add_comm]
