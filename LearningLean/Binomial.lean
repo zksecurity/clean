@@ -33,14 +33,18 @@ theorem greater : ∀ n k, n < k → Bin n k = 0 := fun n => by
 
   | succ n greater_n =>
     intro k (hk : n + 1 < k)
-    -- goal: `Bin (n + 1) k = 0`
+
+    show Bin (n + 1) k = 0
+
     -- write k as _ + 1 to apply recursive Bin definition for `n + 1, _ + 1`
     let ⟨ km1, (k_succ : k = km1 + 1) ⟩ :=
       Nat.zero_lt_of_lt hk |> Nat.ne_zero_iff_zero_lt.mpr |> Nat.exists_eq_succ_of_ne_zero
     rw [k_succ]
-    -- now simp expands the goal to `Bin n (km1 + 1) + Bin n km1 = 0`
+
+    simp [recursive] -- simp expanded the goal to
+    show Bin n (km1 + 1) + Bin n km1 = 0
+
     -- _both_ summands are 0 by the induction hypothesis
-    simp [Bin]
     have hk' : n + 1 < km1 + 1 := k_succ ▸ hk
     have h : n < km1 := Nat.lt_of_succ_lt_succ hk'
     have h' : n < km1 + 1 := Nat.lt_of_succ_lt hk'
@@ -53,19 +57,19 @@ theorem greater1 : Bin n (n+1) = 0 := by
 
 theorem same : Bin n n = 1 := by
   induction n with
-  | zero => rfl -- `Bin 0 0 = 1`
+  | zero => rfl
   | succ n same_n => simp [recursive n n, greater1 n, same_n]
 
 
 theorem one : Bin n 1 = n := by
   induction n with
-  | zero => rfl -- `Bin 0 1 = 0`
+  | zero => rfl
   | succ n one_n => simp [recursive n 0, one_n, zero]
 
 
 theorem smaller1 : Bin (n + 1) n = n + 1 := by
   induction n with
-  | zero => rfl -- `Bin 1 0 = 1`
+  | zero => rfl
   | succ n smaller1_n =>
     simp [recursive (n + 1), same (n + 1), smaller1_n]
     rw [Nat.add_comm]
@@ -108,11 +112,10 @@ theorem k_reduction' : ∀ n k, n > k →
       | inr n_gt_k1 =>
         have n_gt_k : n > k := by apply Nat.lt_of_succ_lt; assumption
 
-        -- goal: `(k + 2) * Bin (n + 1) (k + 2) = (n - k) * Bin (n + 1) (k + 1)`
+        show (k + 2) * Bin (n + 1) (k + 2) = ((n + 1) - (k + 1)) * Bin (n + 1) (k + 1)
 
-        simp [Bin]
-        -- expanding both sides gave us:
-        -- `(k + 2) * (Bin n (k + 2) + Bin n (k + 1)) = (n - k) * (Bin n (k + 1) + Bin n k)`
+        simp [recursive] -- using the recursive fomula on both sides gives us:
+        show (k + 2) * (Bin n (k + 2) + Bin n (k + 1)) = (n - k) * (Bin n (k + 1) + Bin n k)
 
         repeat rw [Nat.mul_add] -- expand the multiplication on both sides
 
