@@ -18,7 +18,7 @@ inductive Expression (F : Type) where
   | const : F -> Expression F
   | add : Expression F -> Expression F -> Expression F
   | mul : Expression F -> Expression F -> Expression F
-deriving Repr
+deriving Repr -- TODO more efficient string representation
 
 namespace Expression
 open Expression
@@ -85,6 +85,17 @@ def eval (env : Nat -> Nat -> F) : Expression F -> F
 
 end Expression
 
+-- define a multivariate polynomial over a CommRing as an expression
+-- with an eval function on a _finite_ matrix of variables (cycling through the matrix if necessary)
+variable {N M : ℕ+}
+
+structure MultiPoly (N M : ℕ+) (F : Type) [CommRing F] where
+  expr : Expression F
+deriving Repr
+
+def MultiPoly.eval (P: MultiPoly N M F) (X : Fin N -> Fin M -> F) : F :=
+  P.expr.eval (fun i j => X (Fin.ofNat' i N.prop) (Fin.ofNat' j M.prop))
+
 -- examples of expressions
 
 open Expression
@@ -95,12 +106,17 @@ deriving instance CommRing for F2
 def BooleanCheck : E F2 := x * (1 - x)
 def BooleanOr : E F2 := x + y - x * y
 
-def Fibonacci1 : E ℚ := x₁ - x₀ - y₀
-def Fibonacci2 : E ℚ := y₁ - x₁ - y₀
+#check MultiPoly.mk
 
+def FibonacciInitX : MultiPoly 2 2 ℚ := ⟨ X.this - 1 ⟩
+def FibonacciInitY : MultiPoly 2 2 ℚ := ⟨ Y.this - 1 ⟩
+def Fibonacci1 : MultiPoly 2 2 ℚ := ⟨ X.next - X.this - Y.this ⟩
+def Fibonacci2 : MultiPoly 2 2 ℚ := ⟨ Y.next - X.next - Y.this ⟩
+
+#eval BooleanCheck
 #eval Fibonacci1
 
-def X : (Nat -> Nat -> F2)
+def X : Nat -> Nat -> F2
   | 0, 0 => 1
   | 0, 1 => 0
   | _, _ => 0
@@ -110,12 +126,13 @@ example : eval X y = 0 := rfl
 example : eval X (x + y) = 1 := rfl
 example : eval X BooleanOr = 1 := rfl
 
-def Fib : (Nat -> Nat -> ℚ)
+def Fib : (Fin 2) -> (Fin 2) -> ℚ
   | 0, 0 => 1
   | 0, 1 => 1
   | 1, 0 => 2
   | 1, 1 => 3
-  | _, _ => 0
 
-#eval eval Fib Fibonacci1
-#eval eval Fib Fibonacci2
+#eval FibonacciInitX.eval Fib
+#eval FibonacciInitY.eval Fib
+#eval Fibonacci1.eval Fib
+#eval Fibonacci2.eval Fib
