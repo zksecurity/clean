@@ -20,6 +20,10 @@ inductive Expression (F : Type) where
   | mul : Expression F -> Expression F -> Expression F
 deriving Repr -- TODO more efficient string representation
 
+structure TwoRows (F : Type) where
+  this : Expression F
+  next : Expression F
+
 namespace Expression
 open Expression
 
@@ -28,10 +32,6 @@ open Expression
 def x : Expression F := var 0 0
 def y : Expression F := var 0 1
 def z : Expression F := var 0 2
-
-structure TwoRows (F : Type) where
-  this : Expression F
-  next : Expression F
 
 def x₀ : Expression F := var 0 0
 def x₁ : Expression F := var 1 0
@@ -106,8 +106,6 @@ deriving instance CommRing for F2
 def BooleanCheck : E F2 := x * (1 - x)
 def BooleanOr : E F2 := x + y - x * y
 
-#check MultiPoly.mk
-
 def FibonacciInitX : MultiPoly 2 2 ℚ := ⟨ X.this - 1 ⟩
 def FibonacciInitY : MultiPoly 2 2 ℚ := ⟨ Y.this - 1 ⟩
 def Fibonacci1 : MultiPoly 2 2 ℚ := ⟨ X.next - X.this - Y.this ⟩
@@ -126,7 +124,7 @@ example : eval X y = 0 := rfl
 example : eval X (x + y) = 1 := rfl
 example : eval X BooleanOr = 1 := rfl
 
-def Fib : (Fin 2) -> (Fin 2) -> ℚ
+def Fib : Fin 2 -> Fin 2 -> ℚ
   | 0, 0 => 1
   | 0, 1 => 1
   | 1, 0 => 2

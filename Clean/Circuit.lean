@@ -1,10 +1,11 @@
+import Clean.Expression
 import Mathlib.Tactic
 import Mathlib.Algebra.Field.Basic
 import Mathlib.Data.ZMod.Basic
 import Mathlib.NumberTheory.LucasLehmer
 
 -- basic data defining an AIR
-variable (ROWS COLUMNS N M : ℕ)
+variable (ROWS COLUMNS N M : ℕ+)
 
 def p := mersenne 31
 def is_prime : p.Prime := lucas_lehmer_sufficiency _ (by norm_num) (by norm_num)
@@ -22,15 +23,15 @@ def Inputs := Matrix (Fin N) (Fin M) F
   The spec is intended to "describe" the constraint in a high-level way that can be easily composed to prove other specs.
 -/
 structure Constraint where
- poly : Inputs N M F -> F -- the polynomial; use a function for now since mathlib's mv polynomials are annoying
+ poly : MultiPoly N M F -- the polynomial; use a function for now since mathlib's mv polynomials are annoying
  spec : Inputs N M F -> Prop
- equiv : ∀ X, poly X = 0 ↔ spec X
+ equiv : ∀ X, poly.eval X = 0 ↔ spec X
 
 /-
   A few special cases that can be easily be cast to `Constraint`
 -/
 structure Constraint1 where
-  poly : F -> F
+  poly : F -> F -- TODO make this a special case of MultiPoly
   spec : F -> Prop
   equiv : ∀ x, poly x = 0 ↔ spec x
 
@@ -43,10 +44,6 @@ structure Constraint2 where
   poly : F -> F -> F
   spec : F -> F -> Prop
   equiv : ∀ x y, poly x y = 0 ↔ spec x y
-
-structure TwoRows where
-  this : F × F
-  next : F × F
 
 structure Constraint1X2 where
   poly : TwoRows F -> F
