@@ -67,7 +67,6 @@ def define1 (f : F -> Constraint1.out F) : Constraint1 F := {
 }
 
 def Boolean := define1 F fun x => {
-
   poly := x * (1 - x)
 
   spec := x = 0 ∨ x = 1
@@ -90,6 +89,7 @@ def Boolean := define1 F fun x => {
 end Constraint
 
 variable {ω : F}
+
 -- the constraint_polynomial for constraint C(X_ij) is the function that maps witness polynomials P[0],...,P[M-1]
 -- to the univariate polynomial
 /- C(
