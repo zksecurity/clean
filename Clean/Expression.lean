@@ -9,8 +9,9 @@
 -/
 import Mathlib.Algebra.Field.Basic
 import Mathlib.Data.ZMod.Basic
+import Mathlib.Data.Real.Basic
 
-variable {F : Type} [Field F]
+variable {F : Type} [CommRing F]
 
 inductive Expression (F : Type) where
   | var : Nat -> Nat -> Expression F
@@ -72,23 +73,49 @@ instance : HMul F (Expression F) (Expression F) where
 
 def zero : Expression F := 0
 def one : Expression F := 1
-def E (F: Type) [Field F] := Expression F
+def E (F: Type) [CommRing F] := Expression F
+
+-- evaluate an expression
+
+def eval (env : Nat -> Nat -> F) : Expression F -> F
+  | var i j => env i j
+  | const f => f
+  | add e₁ e₂ => eval env e₁ + eval env e₂
+  | mul e₁ e₂ => eval env e₁ * eval env e₂
 
 end Expression
-
 
 -- examples of expressions
 
 open Expression
 
 def F2 := ZMod 2
-
-deriving instance Field for F2
+deriving instance CommRing for F2
 
 def BooleanCheck : E F2 := x * (1 - x)
 def BooleanOr : E F2 := x + y - x * y
 
-def Fibonacci1 : E F2 := y₀ - x₀ - x₁
-def Fibonacci2 : E F2 := y₁ - y₀ - x₁
+def Fibonacci1 : E ℚ := x₁ - x₀ - y₀
+def Fibonacci2 : E ℚ := y₁ - x₁ - y₀
 
 #eval Fibonacci1
+
+def X : (Nat -> Nat -> F2)
+  | 0, 0 => 1
+  | 0, 1 => 0
+  | _, _ => 0
+
+example : eval X x = 1 := rfl
+example : eval X y = 0 := rfl
+example : eval X (x + y) = 1 := rfl
+example : eval X BooleanOr = 1 := rfl
+
+def Fib : (Nat -> Nat -> ℚ)
+  | 0, 0 => 1
+  | 0, 1 => 1
+  | 1, 0 => 2
+  | 1, 1 => 3
+  | _, _ => 0
+
+#eval eval Fib Fibonacci1
+#eval eval Fib Fibonacci2
