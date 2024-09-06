@@ -14,8 +14,6 @@ def is_field : Field (ZMod p) := @ZMod.instField p (Fact.mk is_prime)
 
 variable (F : Type) [Field F]
 
-def Inputs := Matrix (Fin N) (Fin M) F
-
 /--
   A `Constraint` is a multivariate polynomial `C(X)` in the variables `X i j`, i = 0,...,ROWS-1 and j = 0,...,COLUMNS-1,
   along with a "local spec" which is any statement equivalent to `C X = 0`.
@@ -23,7 +21,7 @@ def Inputs := Matrix (Fin N) (Fin M) F
   The spec is intended to "describe" the constraint in a high-level way that can be easily composed to prove other specs.
 -/
 structure Constraint where
- poly : MultiPoly N M F -- the polynomial; use a function for now since mathlib's mv polynomials are annoying
+ poly : MultiPoly N M F
  spec : Inputs N M F -> Prop
  equiv : ∀ X, poly.eval X = 0 ↔ spec X
 
@@ -31,9 +29,9 @@ structure Constraint where
   A few special cases that can be easily be cast to `Constraint`
 -/
 structure Constraint1 where
-  poly : F -> F -- TODO make this a special case of MultiPoly
+  expr : MultiPoly 1 1 F
   spec : F -> Prop
-  equiv : ∀ x, poly x = 0 ↔ spec x
+  equiv : ∀ x, expr.eval (Inputs.of1 x) = 0 ↔ spec x
 
 structure Constraint1.out where
   poly : F
@@ -57,18 +55,22 @@ structure Constraint2X2 where
 
 namespace Constraint
 
-def define1 (f : F -> Constraint1.out F) : Constraint1 F := {
-  poly := fun x => (f x).poly,
-  spec := fun x => (f x).spec,
-  equiv := fun x => (f x).equiv
-}
+-- def define1 (f : F -> Constraint1.out F) : Constraint1 F := {
+--   poly := fun x => (f x).poly,
+--   spec := fun x => (f x).spec,
+--   equiv := fun x => (f x).equiv
+-- }
+open Expression
 
-def Boolean := define1 F fun x => {
-  poly := x * (1 - x)
+def Boolean : Constraint1 F := {
+  expr := ⟨ x * (1 - x) ⟩
 
-  spec := x = 0 ∨ x = 1
+  spec := fun x => x = 0 ∨ x = 1
 
   equiv := by
+    intro x
+    rw [Expression.x]
+    -- TODO need more tools to unwrap definitions
     show x * (1 - x) = 0 ↔ (x = 0 ∨ x = 1)
     simp
     constructor

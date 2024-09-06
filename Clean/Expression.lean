@@ -24,6 +24,8 @@ structure TwoRows (F : Type) where
   this : Expression F
   next : Expression F
 
+def Inputs (N M : ℕ+) (F : Type) := (Fin N) → (Fin M) → F
+
 namespace Expression
 open Expression
 
@@ -77,7 +79,7 @@ def E (F: Type) [CommRing F] := Expression F
 
 -- evaluate an expression
 
-def eval (env : Nat -> Nat -> F) : Expression F -> F
+def eval {N M : ℕ+} (env : Inputs N M F) : Expression F -> F
   | var i j => env i j
   | const f => f
   | add e₁ e₂ => eval env e₁ + eval env e₂
@@ -85,16 +87,38 @@ def eval (env : Nat -> Nat -> F) : Expression F -> F
 
 end Expression
 
--- define a multivariate polynomial over a CommRing as an expression
--- with an eval function on a _finite_ matrix of variables (cycling through the matrix if necessary)
+-- define a multivariate polynomial as an
+-- expression with a _fixed number of input variables_
 variable {N M : ℕ+}
 
 structure MultiPoly (N M : ℕ+) (F : Type) [CommRing F] where
   expr : Expression F
 deriving Repr
 
-def MultiPoly.eval (P: MultiPoly N M F) (X : Fin N -> Fin M -> F) : F :=
-  P.expr.eval (fun i j => X (Fin.ofNat' i N.prop) (Fin.ofNat' j M.prop))
+def MultiPoly.eval (P: MultiPoly N M F) (env : Inputs N M F) : F := P.expr.eval env
+
+-- simpler inputs for specific variable layouts
+
+namespace Inputs
+
+def of1 {F : Type} (f : F) : Inputs 1 1 F := fun _ _ => f
+
+def of1x2 {F : Type} (f₀ f₁ : F) : Inputs 1 2 F
+  | 0, 0 => f₀
+  | 0, 1 => f₁
+
+def of2x1 {F : Type} (f₀ f₁ : F) : Inputs 2 1 F
+  | 0, 0 => f₀
+  | 1, 0 => f₁
+
+def of2x2 {F : Type} (f₀₀ f₀₁ f₁₀ f₁₁ : F) : Inputs 2 2 F :=
+  fun i j => match i, j with
+    | 0, 0 => f₀₀
+    | 0, 1 => f₀₁
+    | 1, 0 => f₁₀
+    | 1, 1 => f₁₁
+
+end Inputs
 
 -- examples of expressions
 
@@ -114,17 +138,16 @@ def Fibonacci2 : MultiPoly 2 2 ℚ := ⟨ Y.next - X.next - Y.this ⟩
 #eval BooleanCheck
 #eval Fibonacci1
 
-def X : Nat -> Nat -> F2
+def Bools : Inputs 1 2 F2
   | 0, 0 => 1
   | 0, 1 => 0
-  | _, _ => 0
 
-example : eval X x = 1 := rfl
-example : eval X y = 0 := rfl
-example : eval X (x + y) = 1 := rfl
-example : eval X BooleanOr = 1 := rfl
+example : x.eval Bools = 1 := rfl
+example : y.eval Bools = 0 := rfl
+example : (x + y).eval Bools  = 1 := rfl
+example : BooleanOr.eval Bools = 1 := rfl
 
-def Fib : Fin 2 -> Fin 2 -> ℚ
+def Fib : Inputs 2 2 ℚ
   | 0, 0 => 1
   | 0, 1 => 1
   | 1, 0 => 2
