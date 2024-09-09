@@ -9,10 +9,10 @@ variable (ROWS COLUMNS N M : ℕ+)
 
 def p := mersenne 31
 def is_prime : p.Prime := lucas_lehmer_sufficiency _ (by norm_num) (by norm_num)
+instance : Fact p.Prime := Fact.mk is_prime
 
-def is_field : Field (ZMod p) := @ZMod.instField p (Fact.mk is_prime)
-
-variable (F : Type) [Field F]
+def F := ZMod p
+instance : Field F := ZMod.instField p
 
 /--
   A `Constraint` is a multivariate polynomial `C(X)` in the variables `X i j`, i = 0,...,ROWS-1 and j = 0,...,COLUMNS-1,
@@ -43,16 +43,16 @@ structure Constraint1x2 where
   spec : TwoRows F -> Prop
   equiv : ∀ x₀ x₁, expr.eval (Inputs.of1x2 x₀ x₁) = 0 ↔ spec ⟨ x₀, x₁ ⟩
 
-structure Constraint2X2 where
+structure Constraint2x2 where
   poly : Expression F
   spec : TwoRows F -> TwoRows F -> Prop
-  equiv : ∀ x₀ x₁ y₀ y₁, poly.eval (Inputs.of2x2 x₀ x₁ y₀ y₁) = 0 ↔ spec ⟨ x₀, x₁ ⟩ ⟨ y₀, y₁ ⟩
+  equiv : ∀ x₀ x₁ y₀ y₁, poly.eval (Inputs.of2x2 x₀ y₀ x₁ y₁) = 0 ↔ spec ⟨ x₀, x₁ ⟩ ⟨ y₀, y₁ ⟩
 
 namespace Constraint
 
 open Expression
 
-def Boolean : Constraint1 F := {
+def Boolean : Constraint1 := {
   expr := x * (1 - x)
 
   spec := fun x => x = 0 ∨ x = 1
@@ -73,6 +73,7 @@ def Boolean : Constraint1 F := {
       · right
         simp [eq1]
 }
+
 end Constraint
 
 variable {ω : F}
@@ -86,14 +87,14 @@ variable {ω : F}
   P[0](ω^{N-1}X), ..., P[M-1](ω^{N-1}X)
 )
 -/
-def Constraint.polynomial (C : Constraint N M F) : Polynomial F := sorry
+def Constraint.polynomial (C : Constraint N M) : Polynomial F := sorry
 
 -- An AIR is a constraint plus a vanishing polynomial which describes where the constraint holds
 structure AIR where
-  constraint : Constraint ROWS COLUMNS F
+  constraint : Constraint ROWS COLUMNS
   vanishing : Polynomial F
 
 -- the "statement" of an AIR is that the vanishing polynomial divides the constraint
-def AIR.Statement (a: AIR N M F) :=
-  let C := (Constraint.polynomial N M F a.constraint)
+def AIR.Statement (a: AIR N M) :=
+  let C := (Constraint.polynomial N M a.constraint)
   ∃ P : Polynomial F, C = a.vanishing * P
