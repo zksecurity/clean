@@ -29,56 +29,44 @@ structure Constraint where
   A few special cases that can be easily be cast to `Constraint`
 -/
 structure Constraint1 where
-  expr : MultiPoly 1 1 F
+  expr : Expression F
   spec : F -> Prop
   equiv : ∀ x, expr.eval (Inputs.of1 x) = 0 ↔ spec x
 
-structure Constraint1.out where
-  poly : F
-  spec : Prop
-  equiv : poly = 0 ↔ spec
-
-structure Constraint2 where
-  poly : F -> F -> F
+structure Constraint2x1 where
+  expr : Expression F
   spec : F -> F -> Prop
-  equiv : ∀ x y, poly x y = 0 ↔ spec x y
+  equiv : ∀ x y, expr.eval (Inputs.of2x1 x y) = 0 ↔ spec x y
 
-structure Constraint1X2 where
-  poly : TwoRows F -> F
+structure Constraint1x2 where
+  expr : Expression F
   spec : TwoRows F -> Prop
-  equiv : ∀ x, poly x = 0 ↔ spec x
+  equiv : ∀ x₀ x₁, expr.eval (Inputs.of1x2 x₀ x₁) = 0 ↔ spec ⟨ x₀, x₁ ⟩
 
 structure Constraint2X2 where
-  poly : TwoRows F -> TwoRows F -> F
+  poly : Expression F
   spec : TwoRows F -> TwoRows F -> Prop
-  equiv : ∀ x y, poly x y = 0 ↔ spec x y
+  equiv : ∀ x₀ x₁ y₀ y₁, poly.eval (Inputs.of2x2 x₀ x₁ y₀ y₁) = 0 ↔ spec ⟨ x₀, x₁ ⟩ ⟨ y₀, y₁ ⟩
 
 namespace Constraint
 
--- def define1 (f : F -> Constraint1.out F) : Constraint1 F := {
---   poly := fun x => (f x).poly,
---   spec := fun x => (f x).spec,
---   equiv := fun x => (f x).equiv
--- }
 open Expression
 
 def Boolean : Constraint1 F := {
-  expr := ⟨ x * (1 - x) ⟩
+  expr := x * (1 - x)
 
   spec := fun x => x = 0 ∨ x = 1
 
   equiv := by
     intro x
-    rw [Expression.x]
-    -- TODO need more tools to unwrap definitions
-    show x * (1 - x) = 0 ↔ (x = 0 ∨ x = 1)
+    show x * (1 + (-1)*x) = 0 ↔ (x = 0 ∨ x = 1)
     simp
     constructor
     · rintro (_ | eq1)
       · tauto
       · right
         calc x
-        _ = 1 - (1 - x) := by ring
+        _ = 1 - (1 + (-1)*x) := by ring
         _ = 1 := by simp [eq1]
     · rintro (_ | eq1)
       · tauto

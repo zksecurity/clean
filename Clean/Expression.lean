@@ -120,6 +120,27 @@ def of2x2 {F : Type} (f₀₀ f₀₁ f₁₀ f₁₁ : F) : Inputs 2 2 F :=
 
 end Inputs
 
+-- not sure if we need this
+
+-- namespace Expression
+
+-- def eval1 (x : F) : Expression F -> F
+--   | var _ _ => x
+--   | const f => f
+--   | add e₁ e₂ => eval1 x e₁ + eval1 x e₂
+--   | mul e₁ e₂ => eval1 x e₁ * eval1 x e₂
+
+-- theorem eval1_equiv (expr: Expression F) : ∀ x, expr.eval (Inputs.of1 x) = expr.eval1 x :=
+--   by
+--     intro x
+--     induction expr with
+--     | var i j => rfl
+--     | const f => rfl
+--     | add e₁ e₂ ih₁ ih₂ => simp [eval, eval1, ih₁, ih₂]
+--     | mul e₁ e₂ ih₁ ih₂ => simp [eval, eval1, ih₁, ih₂]
+
+-- end Expression
+
 -- examples of expressions
 
 open Expression
