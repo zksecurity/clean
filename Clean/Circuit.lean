@@ -5,14 +5,15 @@ import Mathlib.Data.ZMod.Basic
 import Mathlib.NumberTheory.LucasLehmer
 
 -- basic data defining an AIR
-variable (ROWS COLUMNS N M : ℕ+)
+variable (N M : ℕ+) (p : ℕ) [Fact p.Prime]
 
-def p := mersenne 31
-def is_prime : p.Prime := lucas_lehmer_sufficiency _ (by norm_num) (by norm_num)
-instance : Fact p.Prime := Fact.mk is_prime
+-- example primality proof
+def pM31 := mersenne 31
+def is_prime : pM31.Prime := lucas_lehmer_sufficiency _ (by norm_num) (by norm_num)
+instance : Fact pM31.Prime := Fact.mk is_prime
 
-def F := ZMod p
-instance : Field F := ZMod.instField p
+def F p := ZMod p
+instance : Field (F p) := ZMod.instField p
 
 /--
   A `Constraint` is a multivariate polynomial `C(X)` in the variables `X i j`, i = 0,...,ROWS-1 and j = 0,...,COLUMNS-1,
@@ -21,52 +22,52 @@ instance : Field F := ZMod.instField p
   The spec is intended to "describe" the constraint in a high-level way that can be easily composed to prove other specs.
 -/
 structure Constraint where
- poly : MultiPoly N M F
- spec : Inputs N M F -> Prop
+ poly : MultiPoly N M (F p)
+ spec : Inputs N M (F p) -> Prop
  equiv : ∀ X, poly.eval X = 0 ↔ spec X
 
 /-
   A few special cases that can be easily be cast to `Constraint`
 -/
 structure Constraint1 where
-  expr : Expression F
-  spec : F -> Prop
+  expr : Expression (F p)
+  spec : F p -> Prop
   equiv : ∀ x, expr.eval (Inputs.of1 x) = 0 ↔ spec x
 
 structure Constraint2x1 where
-  expr : Expression F
-  spec : F -> F -> Prop
+  expr : Expression (F p)
+  spec : F p -> F p -> Prop
   equiv : ∀ x y, expr.eval (Inputs.of2x1 x y) = 0 ↔ spec x y
 
 structure Constraint1x2 where
-  expr : Expression F
-  spec : TwoRows F -> Prop
+  expr : Expression (F p)
+  spec : TwoRows (F p) -> Prop
   equiv : ∀ x₀ x₁, expr.eval (Inputs.of1x2 x₀ x₁) = 0 ↔ spec ⟨ x₀, x₁ ⟩
 
 structure Constraint2x2 where
-  poly : Expression F
-  spec : TwoRows F -> TwoRows F -> Prop
+  poly : Expression (F p)
+  spec : TwoRows (F p) -> TwoRows (F p) -> Prop
   equiv : ∀ x₀ x₁ y₀ y₁, poly.eval (Inputs.of2x2 x₀ y₀ x₁ y₁) = 0 ↔ spec ⟨ x₀, x₁ ⟩ ⟨ y₀, y₁ ⟩
 
 namespace Constraint
 
 open Expression
 
-def Boolean : Constraint1 := {
-  expr := x * (1 - x)
+def Boolean : Constraint1 p := {
+  expr := x * (x - 1)
 
   spec := fun x => x = 0 ∨ x = 1
 
   equiv := by
     intro x
-    show x * (1 + (-1)*x) = 0 ↔ (x = 0 ∨ x = 1)
+    show x * (x + -1 * 1) = 0 ↔ (x = 0 ∨ x = 1)
     simp
     constructor
     · rintro (_ | eq1)
       · tauto
       · right
         calc x
-        _ = 1 - (1 + (-1)*x) := by ring
+        _ = (x + -1) + 1 := by ring
         _ = 1 := by simp [eq1]
     · rintro (_ | eq1)
       · tauto
@@ -76,7 +77,7 @@ def Boolean : Constraint1 := {
 
 end Constraint
 
-variable {ω : F}
+variable {ω : F p}
 
 -- the constraint_polynomial for constraint C(X_ij) is the function that maps witness polynomials P[0],...,P[M-1]
 -- to the univariate polynomial
@@ -87,14 +88,14 @@ variable {ω : F}
   P[0](ω^{N-1}X), ..., P[M-1](ω^{N-1}X)
 )
 -/
-def Constraint.polynomial (C : Constraint N M) : Polynomial F := sorry
+def Constraint.polynomial (C : Constraint N M p) : Polynomial (F p) := sorry
 
 -- An AIR is a constraint plus a vanishing polynomial which describes where the constraint holds
 structure AIR where
-  constraint : Constraint ROWS COLUMNS
-  vanishing : Polynomial F
+  constraint : Constraint N M p
+  vanishing : Polynomial (F p)
 
 -- the "statement" of an AIR is that the vanishing polynomial divides the constraint
-def AIR.Statement (a: AIR N M) :=
-  let C := (Constraint.polynomial N M a.constraint)
-  ∃ P : Polynomial F, C = a.vanishing * P
+def AIR.Statement (a: AIR N M p) :=
+  let C := (Constraint.polynomial N M p a.constraint)
+  ∃ P : Polynomial (F p), C = a.vanishing * P
