@@ -248,9 +248,9 @@ theorem Int.mul_mod (a b p : Int) : a * b % p = (a % p) * (b % p) % p := by
     Int.mul_comm _ (p * (b / p)), Int.mul_assoc, Int.add_mul_emod_self_left]
 
 -- we really want simp to be good with mod p simplifications
-@[simp] theorem Int.mul_mod_right (a b p : Int) : a * (b % p) % p = a * b % p := by
+@[simp] theorem Int.mul_mod_right' (a b p : Int) : a * (b % p) % p = a * b % p := by
   rw [Int.mul_mod, Int.emod_emod, ← Int.mul_mod]
-@[simp] theorem Int.mul_mod_left (a b p : Int) : (a % p) * b % p = a * b % p := by
+@[simp] theorem Int.mul_mod_left' (a b p : Int) : (a % p) * b % p = a * b % p := by
   rw [Int.mul_mod, Int.emod_emod, ← Int.mul_mod]
 
 -- how to get an inverse from Bezout's Lemma
