@@ -13,38 +13,49 @@ variable {p : ℕ} [Fact p.Prime]
 -- forall quantifier over all possible input expressions x, so the proof works with every
 -- input. This allows for example to instantiate the constraint with a specific input
 -- which can be also an expression, for example Boolean.BooleanConstraint (x + y)
-def BooleanConstraint (N M : ℕ+) ( x : Expression (F p)) : GenericConstraint p N M :=
-  GenericConstraint.Constraint
+def circuit (N M : ℕ+) (x : Expression (F p)) : GenericConstraint p N M :=
+  GenericConstraint.mk
     [x * (x - 1)]
     []
-    (fun env => x.eval env = 0 ∨ x.eval env = 1)
-    (by
-      intro X
-      simp [forallList]
-      constructor
-      · simp [Expression.eval]
-        intro h
-        cases h with
-        | inl h => left; exact h
-        | inr h => right; calc
+
+def spec (N M : ℕ+) (x: Expression (F p)) : Inputs N M (F p) -> Prop :=
+  fun env => x.eval env = 0 ∨ x.eval env = 1
+
+theorem equiv (N M : ℕ+) (x: Expression (F p)) : ∀ X, (forallList (fullConstraintSet (circuit N M x)) (fun constraint => constraint.eval X = 0)) ↔ spec N M x X := by
+  intro X
+  simp [forallList]
+  constructor
+  · intro h
+    simp [Expression.eval] at h
+    simp [spec]
+    cases h with
+    | inl h => left; exact h
+    | inr h => right; calc
           eval X x = eval X x + (-1) + 1 := by ring
           _ = 1 := by simp [h]
-      · intro h
-        simp [Expression.eval]
-        cases h with
-        | inl h => left ; exact h
-        | inr h => right ; simp [h]
-    )
+  · intro h
+    simp [Expression.eval]
+    simp [spec] at h
+    cases h with
+    | inl h => left ; exact h
+    | inr h => right ; simp [h]
+
+instance BooleanConstraint (N M : ℕ+) (x : Expression (F p)) : Constraint N M p :=
+  {
+    circuit := circuit N M x,
+    spec := spec N M x,
+    equiv := equiv N M x
+  }
 end Boolean
 
-
+/-
 namespace Addition
 
 open Expression
 variable {p : ℕ} [Fact p.Prime]
 
 def AdditionConstraint (N M : ℕ+) (x y out carry : Expression (F p)) : GenericConstraint p N M :=
-  GenericConstraint.Constraint
+  GenericConstraint.mk
     [
       x + y - out - carry * (const 256)
     ]
@@ -63,3 +74,4 @@ def AdditionConstraint (N M : ℕ+) (x y out carry : Expression (F p)) : Generic
        ∧ carry = (x + y) / 256)
     (sorry)
 end Addition
+-/
