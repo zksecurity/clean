@@ -1,4 +1,4 @@
-import Clean.GenericExpression
+import Clean.Expression
 import Mathlib.Algebra.Field.Basic
 import Mathlib.Data.ZMod.Basic
 
@@ -15,16 +15,16 @@ def forallList {α : Type} (v : List α) (p : α -> Prop) : Prop :=
   | (x::xs) => p x ∧ forallList xs p
 
 
-inductive GenericConstraint (N : ℕ+) : Type
+inductive GenericConstraint (N M : ℕ+) : Type
   | Constraint
     -- the list of (multivariate) polynomials that make up the constraint
-    (polys : List (GenericExpression (F p)))
+    (polys : List (Expression (F p)))
 
     -- list of sub-constraints that are instantiated by this constraint
-    (subConstraints : List (GenericConstraint N))
+    (subConstraints : List (GenericConstraint N M))
 
     -- specification
-    (spec : GenericInputs (F p) -> Prop)
+    (spec : Inputs N M (F p) -> Prop)
 
     -- equivalence theorem
     (equiv : ∀ X, (forallList polys (fun constraint => constraint.eval X = 0)) ↔ spec X)

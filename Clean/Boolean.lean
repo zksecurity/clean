@@ -1,19 +1,19 @@
 import Clean.GenericConstraint
-import Clean.GenericExpression
+import Clean.Expression
 import Mathlib.Algebra.Field.Basic
 import Mathlib.Data.ZMod.Basic
 
 
 namespace Boolean
 
-open GenericExpression
+open Expression
 variable {p : ℕ} [Fact p.Prime]
 
 -- The nice thing about defining constraints like this is that there is an implicit
 -- forall quantifier over all possible input expressions x, so the proof works with every
 -- input. This allows for example to instantiate the constraint with a specific input
 -- which can be also an expression, for example Boolean.BooleanConstraint (x + y)
-def BooleanConstraint (x : GenericExpression (F p)) : GenericConstraint p 1 :=
+def BooleanConstraint (N M : ℕ+) ( x : Expression (F p)) : GenericConstraint p N M :=
   GenericConstraint.Constraint
     [x * (x - 1)]
     []
@@ -22,7 +22,7 @@ def BooleanConstraint (x : GenericExpression (F p)) : GenericConstraint p 1 :=
       intro X
       simp [forallList]
       constructor
-      · simp [GenericExpression.eval]
+      · simp [Expression.eval]
         intro h
         cases h with
         | inl h => left; exact h
@@ -30,7 +30,7 @@ def BooleanConstraint (x : GenericExpression (F p)) : GenericConstraint p 1 :=
           eval X x = eval X x + (-1) + 1 := by ring
           _ = 1 := by simp [h]
       · intro h
-        simp [GenericExpression.eval]
+        simp [Expression.eval]
         cases h with
         | inl h => left ; exact h
         | inr h => right ; simp [h]
@@ -40,16 +40,16 @@ end Boolean
 
 namespace Addition
 
-open GenericExpression
+open Expression
 variable {p : ℕ} [Fact p.Prime]
 
-def AdditionConstraint (x y out carry : GenericExpression (F p)) : GenericConstraint p 1 :=
+def AdditionConstraint (N M : ℕ+) (x y out carry : Expression (F p)) : GenericConstraint p N M :=
   GenericConstraint.Constraint
     [
       x + y - out - carry * (const 256)
     ]
     [
-      Boolean.BooleanConstraint carry
+      Boolean.BooleanConstraint N M carry
     ]
     (fun env =>
       have x := x.eval env;
