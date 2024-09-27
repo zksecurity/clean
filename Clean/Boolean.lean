@@ -84,6 +84,7 @@ def AdditionConstraint (N M : ℕ+) (x y out carry : Expression (F p)) : Generic
     [
       ByteLookup.lookup N M x,
       ByteLookup.lookup N M y,
+      ByteLookup.lookup N M out,
     ]
     [
       Boolean.circuit N M carry
@@ -97,7 +98,7 @@ def spec (N M : ℕ+) (x y out carry: Expression (F p)) : Inputs N M (F p) -> Pr
       have carry := carry.eval env;
       -- This may be a problematic spec, because we cast the addition result to ℕ
       -- modulo reduction is not defined over (F p)
-       (out.val = (x.val + y.val) % 256) ∧ carry = (x.val + y.val) / 256)
+       (out.val = (x.val + y.val) % 256) ∧ carry.val = (x.val + y.val) / 256)
 
 
 theorem equiv (N M : ℕ+) (x y out carry: Expression (F p)) :
@@ -116,6 +117,8 @@ theorem equiv (N M : ℕ+) (x y out carry: Expression (F p)) :
   simp [forallList, Boolean.spec] at equivBoolean
   rw [equivBoolean, spec]
 
+  simp [eval]
+
   -- simplify the goal getting rid of evals
   set x := x.eval X
   set y := y.eval X
@@ -124,10 +127,18 @@ theorem equiv (N M : ℕ+) (x y out carry: Expression (F p)) :
 
   intro hx_byte
   intro hy_byte
-
-  set x_val := ZMod.val x
-  set y_val := ZMod.val y
+  intro hout_byte
 
   constructor
-  sorry
+  · intro h
+    rcases (And.right h) with zero_carry | one_carry
+    · rw [zero_carry]
+      simp [ZMod.val_add]
+      apply And.intro
+      rw [zero_carry] at h
+      simp [ZMod.val_add] at h
+      · sorry
+      · sorry
+    · sorry
+  · sorry
 end Addition
