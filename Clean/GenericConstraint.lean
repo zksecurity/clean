@@ -8,27 +8,27 @@ def F p := ZMod p
 instance : Field (F p) := ZMod.instField p
 instance : Fintype (F p) := ZMod.fintype p
 
-
-def forallList {α : Type} (v : List α) (p : α -> Prop) : Prop :=
-  match v with
-  | [] => true
-  | (x::xs) => p x ∧ forallList xs p
-
--- TODO: replace with an actual structure, maybe a class as below for Constraint
+/-
+  A LookupArgument is an assumption on the inputs to a constraint. For now this is represented
+  as a function that takes the inputs and returns a Prop.
+  TODO: replace with an actual structure, maybe a class as below for Constraint
+-/
 structure LookupArgument (N M : ℕ+) where
   prop : Inputs N M (F p) -> Prop
 
+/-
+  A GenericConstraint is a constraint that can be instantiated with a specific set of inputs.
+  It is composed of
+  - polys: the list of (multivariate) polynomials that make up the constraint, implicitly the
+        constraint holds if all of these polynomials evaluate to 0
+  - lookups: the list of lookup arguments that are assumed to hold for the inputs
+  - subConstraints: the list of sub-constraints that are instantiated by this constraint
+-/
 inductive GenericConstraint (N M : ℕ+) where
     | mk
-    -- the list of (multivariate) polynomials that make up the constraint
     (polys : List (Expression (F p)))
-
-    -- list of lookup arguments that are used in the constraint
     (lookups : List (LookupArgument p N M))
-
-    -- list of sub-constraints that are instantiated by this constraint
     (subConstraints : List (GenericConstraint N M))
-
 
 -- compute the full set of constraints that are implied by this constraint
 def fullConstraintSet {N M : ℕ+} {p : ℕ} [Fact p.Prime] (x : GenericConstraint p N M) : List (Expression (F p)) :=
@@ -39,7 +39,7 @@ where
     | arr, [] => arr
     | arr, (t :: ts) => foldl (arr ++ fullConstraintSet t) ts
 
-
+-- compute the full set of lookup arguments that are implied by this constraint
 def fullLookupSet {N M : ℕ+} {p : ℕ} [Fact p.Prime] (x : GenericConstraint p N M) : List (LookupArgument p N M) :=
   match x with
     | GenericConstraint.mk _ lookups subConstraints => lookups ++ (foldl [] subConstraints)
@@ -48,7 +48,16 @@ where
     | arr, [] => arr
     | arr, (t :: ts) => foldl (arr ++ fullLookupSet t) ts
 
+def forallList {α : Type} (v : List α) (p : α -> Prop) : Prop :=
+  match v with
+  | [] => true
+  | (x::xs) => p x ∧ forallList xs p
 
+/-
+  A Constraint is a typeclass that packages the definition of the circuit together with its higher
+  level specification.
+  The equivalence theorem states that the circuit is satisfied if and only if the spec is satisfied.
+-/
 class Constraint (N M : ℕ+) (p : ℕ) [Fact p.Prime] :=
     -- the constraints
     (circuit : GenericConstraint p N M)
@@ -56,7 +65,7 @@ class Constraint (N M : ℕ+) (p : ℕ) [Fact p.Prime] :=
     -- specification
     (spec : Inputs N M (F p) -> Prop)
 
-    -- equivalence theorem, with lookup props into the assumptions
+    -- equivalence theorem
     (equiv :
       (∀ X,
         (forallList (fullLookupSet circuit) (fun lookup => lookup.prop X))
