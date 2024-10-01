@@ -29,12 +29,12 @@ def spec (N M : ℕ+) (x y out carry: Expression (F p)) : Inputs N M (F p) -> Pr
       have x := x.eval env;
       have y := y.eval env;
       have out := out.eval env;
-      have _carry := carry.eval env;
-      out.val = (x.val + y.val) % 256)
+      have carry := carry.eval env;
+      (out.val = (x.val + y.val) % 256) ∧ carry.val = (x.val + y.val) / 256)
 
 theorem equiv_mod_256_zero_carry_fw (x y out : F p):
     x.val < 256 -> y.val < 256 -> out.val < 256 ->
-    (x + y - out = 0 -> out.val = (x.val + y.val) % 256) := by
+    (x + y - out = 0 -> (out.val = (x.val + y.val) % 256 ∧ (x.val + y.val) / 256 = 0)) := by
   intros hx hy hout
   let sum_lt_512 : x.val + y.val < 512 := Nat.add_lt_add hx hy
   let p_neq_zero : p ≠ 0 := Nat.Prime.ne_zero p_is_prime.elim
@@ -47,9 +47,11 @@ theorem equiv_mod_256_zero_carry_fw (x y out : F p):
   rw [ZMod.val_add, sum_eq_over_naturals] at h
   have x_plus_y_less_256 := hout
   rw [←h] at x_plus_y_less_256
-  rw [Nat.mod_eq_of_lt x_plus_y_less_256]
-  apply Eq.symm
-  assumption
+  apply And.intro
+  · rw [Nat.mod_eq_of_lt x_plus_y_less_256]
+    apply Eq.symm
+    assumption
+  · apply Nat.div_eq_of_lt; assumption
 
 -- TODO: this is very messy because dealing with % 256 over a general field, even if
 -- we have the p > 512 assumption, is not trivial.
@@ -57,7 +59,7 @@ theorem equiv_mod_256_zero_carry_fw (x y out : F p):
 -- holds if the field is large enough (i.e., if there is no wrapping around).
 theorem equiv_mod_256_one_carry_fw (x y out : F p):
     x.val < 256 -> y.val < 256 -> out.val < 256 ->
-    (x + y - out - 256 = 0 -> out.val = (x.val + y.val) % 256) := by
+    x + y - out - 256 = 0 -> (out.val = (x.val + y.val) % 256 ∧ (x.val + y.val) / 256 = 1) := by
   intros hx hy hout
   have sum_lt_512 : x.val + y.val < 512 := Nat.add_lt_add hx hy
   have p_neq_zero : p ≠ 0 := Nat.Prime.ne_zero p_is_prime.elim
@@ -93,13 +95,16 @@ theorem equiv_mod_256_one_carry_fw (x y out : F p):
   set x := x.val
   set y := y.val
   set out := out.val
-  rw [ZMod.val_add, sum_eq_over_naturals, val_256_is_256, mod_256_is_256] at h'
-  have h3 := h'
-  have sub_mod := Nat.mod_eq_sub_mod h'
-  rw [sub_mod]
-  rw [←h] at hout
-  rw [Nat.mod_eq_of_lt hout]
-  rw [h]
+  apply And.intro
+  · rw [ZMod.val_add, sum_eq_over_naturals, val_256_is_256, mod_256_is_256] at h'
+    have sub_mod := Nat.mod_eq_sub_mod h'
+    rw [sub_mod]
+    rw [←h] at hout
+    rw [Nat.mod_eq_of_lt hout, h]
+  · rw [ZMod.val_add, sum_eq_over_naturals, val_256_is_256, mod_256_is_256] at h'
+    rw [Nat.div_eq_of_lt_le]
+    · rw [←Nat.one_mul 256] at h'; assumption
+    · simp; assumption
 
 
 theorem equiv (N M : ℕ+) (x y out carry: Expression (F p)) :
@@ -134,10 +139,35 @@ theorem equiv (N M : ℕ+) (x y out carry: Expression (F p)) :
     · rw [zero_carry] at h
       simp [ZMod.val_add] at h
       rw [←sub_eq_add_neg] at h
-      exact equiv_mod_256_zero_carry_fw x y out hx_byte hy_byte hout_byte h
+      have thm := equiv_mod_256_zero_carry_fw x y out hx_byte hy_byte hout_byte h
+      apply_fun ZMod.val at zero_carry
+      rw [ZMod.val_zero] at zero_carry
+      rw [← thm.right] at zero_carry
+      apply And.intro
+      · exact thm.left
+      · exact zero_carry
     · rw [one_carry] at h
       simp [ZMod.val_add] at h
       rw [←sub_eq_add_neg, ←sub_eq_add_neg (x + y)] at h
-      exact equiv_mod_256_one_carry_fw x y out hx_byte hy_byte hout_byte h
-  · sorry
+      have thm := equiv_mod_256_one_carry_fw x y out hx_byte hy_byte hout_byte h
+      apply_fun ZMod.val at one_carry
+      rw [ZMod.val_one] at one_carry
+      rw [← thm.right] at one_carry
+      apply And.intro
+      · exact thm.left
+      · exact one_carry
+  · intro h
+    have carry? := Nat.lt_or_ge (x.val + y.val) 256
+    rcases carry? with sum_lt_256 | sum_ge_256
+    · sorry
+    · sorry
+
+
+instance (N M : ℕ+) (x y out carry : Expression (F p)) : Constraint N M p :=
+  {
+    circuit := circuit N M x y out carry,
+    spec := spec N M x y out carry,
+    equiv := equiv N M x y out carry
+  }
+
 end Addition8
