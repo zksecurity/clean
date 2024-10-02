@@ -56,7 +56,8 @@ def forallList {α : Type} (v : List α) (p : α -> Prop) : Prop :=
 /-
   A Constraint is a typeclass that packages the definition of the circuit together with its higher
   level specification.
-  The equivalence theorem states that the circuit is satisfied if and only if the spec is satisfied.
+  The equivalence theorem states that the full set of constraints implied by the circuit
+  is satisfied if and only if the spec is satisfied, given as assumptions the lookups.
 -/
 class Constraint (N M : ℕ+) (p : ℕ) [Fact p.Prime] :=
     -- the constraints

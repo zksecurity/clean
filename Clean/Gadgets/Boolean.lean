@@ -51,10 +51,10 @@ theorem equiv (N M : ℕ+) (x: Expression (F p)) :
 
 
 instance BooleanConstraint (N M : ℕ+) (x : Expression (F p)) : Constraint N M p :=
-  {
-    circuit := circuit N M x,
-    spec := spec N M x,
-    equiv := equiv N M x
-  }
+{
+  circuit := circuit N M x,
+  spec := spec N M x,
+  equiv := equiv N M x
+}
 
 end Boolean
