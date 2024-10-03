@@ -1,12 +1,10 @@
+import Clean.Utils.Field
 import Clean.Expression
 import Mathlib.Algebra.Field.Basic
 import Mathlib.Data.ZMod.Basic
 
+section
 variable (N : ℕ+) (p : ℕ) [Fact p.Prime]
-
-def F p := ZMod p
-instance : Field (F p) := ZMod.instField p
-instance : Fintype (F p) := ZMod.fintype p
 
 /-
   A LookupArgument is an assumption on the inputs to a constraint. For now this is represented
@@ -76,3 +74,5 @@ class Constraint (N M : ℕ+) (p : ℕ) [Fact p.Prime] :=
           spec X
         )
       ))
+
+end

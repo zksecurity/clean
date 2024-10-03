@@ -11,7 +11,6 @@ import Mathlib.Algebra.Field.Basic
 import Mathlib.Data.ZMod.Basic
 import Mathlib.Data.Real.Basic
 
-variable {F : Type} [CommRing F]
 
 inductive Expression (F : Type) where
   | var : Nat -> Nat -> Expression F
@@ -20,15 +19,16 @@ inductive Expression (F : Type) where
   | mul : Expression F -> Expression F -> Expression F
 deriving Repr -- TODO more efficient string representation
 
-structure TwoRows (F : Type) where
+
+
+structure TwoRows (F : Type) [CommRing F] where
   this : Expression F
   next : Expression F
 
 def Inputs (N M : ℕ+) (F : Type) := (Fin N) → (Fin M) → F
 
 namespace Expression
-open Expression
-
+variable {F : Type} [CommRing F]
 -- a few variables to work with
 
 def x : Expression F := var 0 0
@@ -87,18 +87,22 @@ def eval {N M : ℕ+} (env : Inputs N M F) : Expression F -> F
 
 end Expression
 
--- define a multivariate polynomial as an
--- expression with a _fixed number of input variables_
-variable {N M : ℕ+}
-
 structure MultiPoly (N M : ℕ+) (F : Type) [CommRing F] where
   expr : Expression F
 deriving Repr
 
-def MultiPoly.eval (P: MultiPoly N M F) (env : Inputs N M F) : F := P.expr.eval env
+namespace MultiPoly
+-- define a multivariate polynomial as an
+-- expression with a _fixed number of input variables_
+variable {N M : ℕ+}
+variable {F : Type} [CommRing F]
+
+def eval (P: MultiPoly N M F) (env : Inputs N M F) : F := P.expr.eval env
+
+end MultiPoly
+
 
 -- simpler inputs for specific variable layouts
-
 namespace Inputs
 
 def of1 {F : Type} (f : F) : Inputs 1 1 F := fun _ _ => f
@@ -143,7 +147,10 @@ end Inputs
 
 -- examples of expressions
 
+
+section
 open Expression
+open MultiPoly
 
 def F2 := ZMod 2
 deriving instance CommRing for F2
@@ -178,3 +185,5 @@ def Fib : Inputs 2 2 ℚ
 #eval FibonacciInitY.eval Fib
 #eval Fibonacci1.eval Fib
 #eval Fibonacci2.eval Fib
+
+end

@@ -1,9 +1,11 @@
+import Clean.Utils.Field
 import Clean.Expression
 import Mathlib.Tactic
 import Mathlib.Algebra.Field.Basic
 import Mathlib.Data.ZMod.Basic
 import Mathlib.NumberTheory.LucasLehmer
 
+section Air
 -- basic data defining an AIR
 variable (N M : ℕ+) (p : ℕ) [Fact p.Prime]
 
@@ -11,9 +13,6 @@ variable (N M : ℕ+) (p : ℕ) [Fact p.Prime]
 def pM31 := mersenne 31
 def is_prime : pM31.Prime := lucas_lehmer_sufficiency _ (by norm_num) (by norm_num)
 instance : Fact pM31.Prime := Fact.mk is_prime
-
-def F p := ZMod p
-instance : Field (F p) := ZMod.instField p
 
 /--
   A `Constraint` is a multivariate polynomial `C(X)` in the variables `X i j`, i = 0,...,ROWS-1 and j = 0,...,COLUMNS-1,
@@ -49,9 +48,13 @@ structure Constraint2x2 where
   spec : TwoRows (F p) -> TwoRows (F p) -> Prop
   equiv : ∀ x₀ x₁ y₀ y₁, poly.eval (Inputs.of2x2 x₀ y₀ x₁ y₁) = 0 ↔ spec ⟨ x₀, x₁ ⟩ ⟨ y₀, y₁ ⟩
 
+end Air
+
 namespace Constraint
 
 open Expression
+variable (p : ℕ) [Fact p.Prime]
+
 
 def Boolean : Constraint1 p := {
   expr := x * (x - 1)
@@ -77,6 +80,10 @@ def Boolean : Constraint1 p := {
 
 end Constraint
 
+section
+open Constraint
+
+variable (N M : ℕ+) (p : ℕ) [Fact p.Prime]
 variable {ω : F p}
 
 -- the constraint_polynomial for constraint C(X_ij) is the function that maps witness polynomials P[0],...,P[M-1]
@@ -99,3 +106,5 @@ structure AIR where
 def AIR.Statement (a: AIR N M p) :=
   let C := (Constraint.polynomial N M p a.constraint)
   ∃ P : Polynomial (F p), C = a.vanishing * P
+
+end
