@@ -45,78 +45,52 @@ def spec (N M : ℕ+) (x y out carry: Expression (F p)) : Inputs N M (F p) -> Pr
 theorem equiv_mod_256_zero_carry_fw (x y out : F p):
     x.val < 256 -> y.val < 256 -> out.val < 256 ->
     (x + y - out = 0 -> (out.val = (x.val + y.val) % 256 ∧ (x.val + y.val) / 256 = 0)) := by
-  intros hx hy hout
-  let sum_lt_512 : x.val + y.val < 512 := Nat.add_lt_add hx hy
-  let p_neq_zero : p ≠ 0 := Nat.Prime.ne_zero p_is_prime.elim
-  let sum_lt_p : x.val + y.val < p := Nat.lt_trans sum_lt_512 p_large_enough.elim
-  let sum_eq_over_naturals : (x.val + y.val) % p = x.val + y.val
-    := (Nat.mod_eq_iff_lt p_neq_zero).mpr sum_lt_p
-  intro h
+
+  intros hx hy hout h
+  have not_wrap := FieldUtils.byte_sum_do_not_wrap x y hx hy
   rw [sub_eq_zero] at h
   apply_fun ZMod.val at h
-  rw [ZMod.val_add, sum_eq_over_naturals] at h
-  have x_plus_y_less_256 := hout
-  rw [←h] at x_plus_y_less_256
+  rw [not_wrap] at h
+  rw [←h] at hout
   apply And.intro
-  · rw [Nat.mod_eq_of_lt x_plus_y_less_256]
-    apply Eq.symm
-    assumption
+  · rw [Nat.mod_eq_of_lt hout]
+    apply Eq.symm; assumption
   · apply Nat.div_eq_of_lt; assumption
 
 /-
   Second part of the soundness direction: case of one carry
-  TODO: this is very messy because dealing with % 256 over a general field, even if
-  we have the p > 512 assumption, is not trivial.
-  We should probably refactor using a general theorem about lifting operations to F p that
-  holds if the field is large enough (i.e., if there is no wrapping around).
 -/
 theorem equiv_mod_256_one_carry_fw (x y out : F p):
     x.val < 256 -> y.val < 256 -> out.val < 256 ->
     x + y - out - 256 = 0 -> (out.val = (x.val + y.val) % 256 ∧ (x.val + y.val) / 256 = 1) := by
-  intros hx hy hout
-  have sum_lt_512 : x.val + y.val < 512 := Nat.add_lt_add hx hy
-  have sum_lt_p : x.val + y.val < p := Nat.lt_trans sum_lt_512 p_large_enough.elim
-  have sum_eq_over_naturals : (x.val + y.val) % p = x.val + y.val
-    := (Nat.mod_eq_iff_lt (FieldUtils.p_neq_zero p)).mpr sum_lt_p
-  have val_256_lt_p : 256 < p := Nat.lt_trans (by norm_num) p_large_enough.elim
-  have mod_256_is_256 : 256 % p = 256 := (Nat.mod_eq_iff_lt (FieldUtils.p_neq_zero p)).mpr val_256_lt_p
-  have val_256_is_256 : (256 : F p).val = 256 % p := ZMod.val_natCast _
-  have out_plus_256_lt_512 : out.val + 256 < 512 := Nat.add_lt_add_right hout 256
-  have out_plus_256_lt_p : out.val + 256 < p := Nat.lt_trans out_plus_256_lt_512 p_large_enough.elim
 
-  intro h
+  intros hx hy hout h
+  have xy_not_wrap := FieldUtils.byte_sum_do_not_wrap x y hx hy
+  have out_plus_256_not_wrap := FieldUtils.byte_plus_256_do_not_wrap out hout
+
   rw [sub_eq_zero] at h
   have h := eq_add_of_sub_eq h
   rw [add_comm 256] at h
-  have h' : (x + y).val ≥ (256 : F p).val := by
-    apply_fun ZMod.val at h
-    rw [ZMod.val_add out] at h
-    rw [val_256_is_256, mod_256_is_256] at h
-    rw [(Nat.mod_eq_iff_lt (FieldUtils.p_neq_zero p)).mpr out_plus_256_lt_p] at h
-    have h2 : out.val + 256 >= 256 := by simp
-    rw [←h] at h2
-    rw [val_256_is_256, mod_256_is_256]
-    assumption
-  have h := Eq.symm (eq_sub_of_add_eq (Eq.symm h))
   apply_fun ZMod.val at h
-  rw [ZMod.val_sub h'] at h
-  rw [ZMod.val_add, sum_eq_over_naturals] at h
-  rw [val_256_is_256, mod_256_is_256] at h
+  rw [xy_not_wrap, out_plus_256_not_wrap] at h
+  have h : (x.val + y.val) - 256 = out.val := Eq.symm (Nat.eq_sub_of_add_eq (Eq.symm h))
 
-  -- finally, now the statement is over ℕ
   set x := x.val
   set y := y.val
   set out := out.val
+
+  have x_plus_y_overflow_byte : x + y ≥ 256 := by
+    have h2 : out + 256 >= 256 := by simp
+    rw [←h] at h2
+    linarith
+
   apply And.intro
-  · rw [ZMod.val_add, sum_eq_over_naturals, val_256_is_256, mod_256_is_256] at h'
-    have sub_mod := Nat.mod_eq_sub_mod h'
-    rw [sub_mod]
+  · have sub_mod := Nat.mod_eq_sub_mod x_plus_y_overflow_byte
     rw [←h] at hout
-    rw [Nat.mod_eq_of_lt hout, h]
-  · rw [ZMod.val_add, sum_eq_over_naturals, val_256_is_256, mod_256_is_256] at h'
-    rw [Nat.div_eq_of_lt_le]
-    · rw [←Nat.one_mul 256] at h'; assumption
-    · simp; assumption
+    rw [sub_mod, Nat.mod_eq_of_lt hout, h]
+  · rw [Nat.div_eq_of_lt_le]
+    · rw [←Nat.one_mul 256] at x_plus_y_overflow_byte; assumption
+    · simp; exact Nat.add_lt_add hx hy
 
 
 theorem equiv (N M : ℕ+) (x y out carry: Expression (F p)) :
