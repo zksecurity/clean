@@ -41,4 +41,11 @@ theorem byte_plus_256_do_not_wrap (x: F p) [p_large_enough: Fact (p > 512)]:
   rw [val_256_is_256, mod_256_is_256] at thm
   apply thm
 
+theorem val_lt_p (x: ℕ) : (x < p) -> (x : F p).val = x := by
+  intro x_lt_p
+  have x_mod_is_x : x % p = x := (Nat.mod_eq_iff_lt (FieldUtils.p_neq_zero)).mpr x_lt_p
+  rw [ZMod.val_natCast x]
+  assumption
+
+
 end FieldUtils

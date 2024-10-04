@@ -42,7 +42,7 @@ def spec (N M : ℕ+) (x y out carry: Expression (F p)) : Inputs N M (F p) -> Pr
 /-
   First part of the soundness direction: case of zero carry
 -/
-theorem equiv_mod_256_zero_carry_fw (x y out : F p):
+theorem soundness_zero_carry (x y out : F p):
     x.val < 256 -> y.val < 256 -> out.val < 256 ->
     (x + y - out = 0 -> (out.val = (x.val + y.val) % 256 ∧ (x.val + y.val) / 256 = 0)) := by
 
@@ -60,7 +60,7 @@ theorem equiv_mod_256_zero_carry_fw (x y out : F p):
 /-
   Second part of the soundness direction: case of one carry
 -/
-theorem equiv_mod_256_one_carry_fw (x y out : F p):
+theorem soundness_one_carry (x y out : F p):
     x.val < 256 -> y.val < 256 -> out.val < 256 ->
     x + y - out - 256 = 0 -> (out.val = (x.val + y.val) % 256 ∧ (x.val + y.val) / 256 = 1) := by
 
@@ -118,35 +118,79 @@ theorem equiv (N M : ℕ+) (x y out carry: Expression (F p)) :
   intro hx_byte
   intro hy_byte
   intro hout_byte
-
   constructor
+
+  -- soundness
   · intro h
     rcases (And.right h) with zero_carry | one_carry
     · rw [zero_carry] at h
       simp [ZMod.val_add] at h
       rw [←sub_eq_add_neg] at h
-      have thm := equiv_mod_256_zero_carry_fw x y out hx_byte hy_byte hout_byte h
+      have thm := soundness_zero_carry x y out hx_byte hy_byte hout_byte h
       apply_fun ZMod.val at zero_carry
-      rw [ZMod.val_zero] at zero_carry
-      rw [← thm.right] at zero_carry
+      rw [ZMod.val_zero, ← thm.right] at zero_carry
       apply And.intro
       · exact thm.left
       · exact zero_carry
     · rw [one_carry] at h
       simp [ZMod.val_add] at h
       rw [←sub_eq_add_neg, ←sub_eq_add_neg (x + y)] at h
-      have thm := equiv_mod_256_one_carry_fw x y out hx_byte hy_byte hout_byte h
+      have thm := soundness_one_carry x y out hx_byte hy_byte hout_byte h
       apply_fun ZMod.val at one_carry
-      rw [ZMod.val_one] at one_carry
-      rw [← thm.right] at one_carry
+      rw [ZMod.val_one, ← thm.right] at one_carry
       apply And.intro
       · exact thm.left
       · exact one_carry
+
+  -- completeness
   · intro h
     have carry? := Nat.lt_or_ge (x.val + y.val) 256
     rcases carry? with sum_lt_256 | sum_ge_256
-    · sorry
-    · sorry
+
+    -- first case: x + y <= 256, carry = 0
+    · have h1 := h.left; have h2 := h.right
+      rw [(Nat.mod_eq_iff_lt (by linarith)).mpr sum_lt_256] at h1
+      rw [←FieldUtils.byte_sum_do_not_wrap x y hx_byte hy_byte] at h1
+      rw [Nat.div_eq_of_lt sum_lt_256] at h2
+      simp at h2
+      rw [h2]; simp
+      rw [←sub_eq_add_neg, sub_eq_zero]
+      apply_fun ZMod.val
+      · exact Eq.symm h1
+      · apply ZMod.val_injective
+
+    -- second case: x + y > 256, carry = 1
+    · have h1 := h.left; have h2 := h.right
+      have sum_le_512 := Nat.add_lt_add hx_byte hy_byte
+      simp at sum_le_512
+      have div_one : (x.val + y.val) / 256 = 1 := by
+        apply Nat.div_eq_of_lt_le
+        · simp; exact sum_ge_256
+        · simp; exact sum_le_512
+      have val_one_is_one := FieldUtils.val_lt_p 1 (Nat.lt_trans (by norm_num) p_large_enough.elim)
+      rw [div_one] at h2
+      rw [← val_one_is_one] at h2
+      simp at h2
+      have carry_one : carry = 1 := (Function.Injective.eq_iff (ZMod.val_injective p)).mp h2
+      rw [carry_one]
+      simp
+      rw [←sub_eq_add_neg, sub_eq_zero, add_eq_of_eq_sub]
+      simp
+      rw [add_comm 256, ← sub_eq_iff_eq_add]
+      have modulo_definition_div := Nat.mod_add_div (x.val + y.val) 256
+      rw [div_one] at modulo_definition_div
+      simp at modulo_definition_div
+      apply_fun ZMod.val
+      · have xy_not_wrap := FieldUtils.byte_sum_do_not_wrap x y hx_byte hy_byte
+        rw [←xy_not_wrap] at h1
+        rw [←xy_not_wrap] at sum_ge_256
+        have val_256_is_256 := FieldUtils.val_lt_p 256 (Nat.lt_trans (by norm_num) p_large_enough.elim)
+        rw [←val_256_is_256] at sum_ge_256
+        have sub_256_val : ((x + y) - 256).val = (x+y).val - (256 : F p).val  := ZMod.val_sub sum_ge_256
+        simp at val_256_is_256
+        rw [sub_256_val, xy_not_wrap, val_256_is_256, ← modulo_definition_div, ←xy_not_wrap]
+        simp; exact (Eq.symm h1)
+      · apply ZMod.val_injective
 
 
 instance (N M : ℕ+) (x y out carry : Expression (F p)) : Constraint N M p :=
