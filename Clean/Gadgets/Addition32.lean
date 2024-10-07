@@ -10,7 +10,6 @@ open Expression
 variable {p : ℕ} [Fact p.Prime]
 
 -- Addition of elements from GL(2 ^ 32) as
-<<<<<<< HEAD
 -- x = x₀ + x₁ * 2 ^ 8 + x₂ * 2 ^ 16 + x₃ * 2 ^ 24 : ∀ i xi < 2 ^ 8
 
 
@@ -20,22 +19,11 @@ def lookup (N M : ℕ+) (x₀ x₁ x₂ x₃ : Expression (F p)) (n : ℕ+) : Lo
                        ∧ (x₁.eval env).val < n
                        ∧ (x₂.eval env).val < n
                        ∧ (x₃.eval env).val < n
-=======
--- x = x₀ + x₁ * 2 ^ 8 + x₂ * 2 ^ 16 + x₃ * 2 ^ 24
-
-def lookup (N M : ℕ+) (x₀ x₁ x₂ x₃ : Expression (F p)) : LookupArgument p N M :=
-  {
-    prop := fun env =>   (x₀.eval env).val < 2 ^ 8
-                       ∧ (x₁.eval env).val < 2 ^ 8
-                       ∧ (x₂.eval env).val < 2 ^ 8
-                       ∧ (x₃.eval env).val < 2 ^ 8
->>>>>>> 46bdc22db9953fc0115e178f76825fa4d5b88af5
   }
 
 def AdditionConstraint (N M : ℕ+) (x₀ x₁ x₂ x₃ y₀ y₁ y₂ y₃ z₀ z₁ z₂ z₃ c₀ c₁ c₂ c₃ : Expression (F p))
 : GenericConstraint p N M :=
   GenericConstraint.mk
-<<<<<<< HEAD
     [
       x₀ + y₀ - z₀ - c₀ * const (2 ^ 8),
       x₁ + y₁ + c₀ - z₁ - c₁ * const (2 ^ 8),
@@ -51,24 +39,11 @@ def AdditionConstraint (N M : ℕ+) (x₀ x₁ x₂ x₃ y₀ y₁ y₂ y₃ z�
 
     [
       Boolean.circuit N M c₀,
-=======
-    [ x₀ + y₀ - z₀ - c₀ * const (2 ^ 8),
-      x₁ + y₁ - z₁ - c₁ * const (2 ^ 8),
-      x₂ + y₂ - z₂ - c₂ * const (2 ^ 8),
-      x₃ + y₃ - z₃ - c₃ * const (2 ^ 8)
-    ]
-
-    [ lookup N M x₀ x₁ x₂ x₃,
-      lookup N M y₀ y₁ y₂ y₃,
-      lookup N M z₀ z₁ z₂ z₃,
-    ]
-
-    [ Boolean.circuit N M c₀,
->>>>>>> 46bdc22db9953fc0115e178f76825fa4d5b88af5
       Boolean.circuit N M c₁,
       Boolean.circuit N M c₂,
       Boolean.circuit N M c₃
     ]
+
 
 def spec (N M : ℕ+) (x₀ x₁ x₂ x₃ y₀ y₁ y₂ y₃ z₀ z₁ z₂ z₃ c₀ c₁ c₂ c₃ : Expression (F p))
   : Inputs N M (F p) -> Prop :=
@@ -76,7 +51,6 @@ def spec (N M : ℕ+) (x₀ x₁ x₂ x₃ y₀ y₁ y₂ y₃ z₀ z₁ z₂ z�
       have x := (x₀.eval env) + (x₁.eval env) * 2 ^ 8 + (x₂.eval env) * 2 ^ 16 + (x₃.eval env) * 2 ^ 24;
       have y := (y₀.eval env) + (y₁.eval env) * 2 ^ 8 + (y₂.eval env) * 2 ^ 16 + (y₃.eval env) * 2 ^ 24;
       have z := (z₀.eval env) + (z₁.eval env) * 2 ^ 8 + (z₂.eval env) * 2 ^ 16 + (z₃.eval env) * 2 ^ 24;
-<<<<<<< HEAD
       have c₃ := c₃.eval env;
       (z.val = x.val + y.val % 2 ^ 32)
       ∧ c₃.val  = (x.val + y.val) / 2 ^ 32
@@ -85,16 +59,6 @@ def spec (N M : ℕ+) (x₀ x₁ x₂ x₃ y₀ y₁ y₂ y₃ z₀ z₁ z₂ z�
 -- def Num32 := { x : F p × F p × F p × F p
 --                //  x.1.val < 2 ^ 8 ∧ x.2.1.val < 2 ^ 8
 --                    ∧ x.2.1.val < 2 ^ 8 ∧ x.2.1.val < 2 ^ 8 }
-=======
-      have c₀ := c₀.eval env;
-      have c₁ := c₁.eval env;
-      have c₂ := c₂.eval env;
-      have c₃ := c₃.eval env;
-      (z.val = x.val + y.val % 2 ^ 32)
-      ∧ c₀.val + c₁.val + c₂.val + c₃.val  = (x.val + y.val) / 2 ^ 32
-    )
-
->>>>>>> 46bdc22db9953fc0115e178f76825fa4d5b88af5
 
 theorem equiv (N M : ℕ+) (x₀ x₁ x₂ x₃ y₀ y₁ y₂ y₃ z₀ z₁ z₂ z₃ c₀ c₁ c₂ c₃ : Expression (F p)) :
   (∀ X,
@@ -120,7 +84,6 @@ theorem equiv (N M : ℕ+) (x₀ x₁ x₂ x₃ y₀ y₁ y₂ y₃ z₀ z₁ z�
     simp [forallList, Boolean.spec] at equivBoolean2
     simp [forallList, Boolean.spec] at equivBoolean3
     rw [equivBoolean0, equivBoolean1, equivBoolean2, equivBoolean3, spec]
-<<<<<<< HEAD
 
     set x₀ := x₀.eval X
     set x₁ := x₁.eval X
@@ -151,10 +114,4 @@ theorem equiv (N M : ℕ+) (x₀ x₁ x₂ x₃ y₀ y₁ y₂ y₃ z₀ z₁ z�
       ⟨hxyz1, hxyz2, hxyz3, hc0, hc1, hc2, hc3⟩
       sorry
 
-=======
-    intro h₁ h₂ h₃
-    simp [eval]
-    constructor
-    . sorry
->>>>>>> 46bdc22db9953fc0115e178f76825fa4d5b88af5
     . sorry
