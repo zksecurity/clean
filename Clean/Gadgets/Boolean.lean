@@ -12,16 +12,16 @@ namespace Boolean
 open Expression
 variable {p : ℕ} [Fact p.Prime]
 
-def circuit (N M : ℕ+) (x : Expression (F p)) : GenericConstraint p N M :=
+def circuit (N M : ℕ+) (x : Expression N M (F p)) : GenericConstraint p N M :=
   GenericConstraint.mk
     [x * (x - 1)]
     []
     []
 
-def spec (N M : ℕ+) (x: Expression (F p)) : Inputs N M (F p) -> Prop :=
+def spec (N M : ℕ+) (x: Expression N M (F p)) : Inputs N M (F p) -> Prop :=
   fun env => x.eval env = 0 ∨ x.eval env = 1
 
-theorem equiv (N M : ℕ+) (x: Expression (F p)) :
+theorem equiv (N M : ℕ+) (x: Expression N M (F p)) :
   (∀ X,
     (forallList (fullLookupSet (circuit N M x)) (fun lookup => lookup.prop X))
     -> (
@@ -50,7 +50,7 @@ theorem equiv (N M : ℕ+) (x: Expression (F p)) :
     | inr h => right ; simp [h]
 
 
-instance BooleanConstraint (N M : ℕ+) (x : Expression (F p)) : Constraint N M p :=
+instance BooleanConstraint (N M : ℕ+) (x : Expression N M (F p)) : Constraint N M p :=
 {
   circuit := circuit N M x,
   spec := spec N M x,

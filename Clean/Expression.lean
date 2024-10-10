@@ -5,81 +5,84 @@
   An expression, in our context, is a variable, a constant or a combination of those using
   addition and multiplication.
 
-  Variables are indexed by a row and column index, which is a natural number.
+  Variables are indexed by a row and column index.
+  The row index is a ZMod M because we want to support indexing the next row, possibly wrapping around.
+  The column index is a Fin N because the colum index is bounded, and it does not make sense to
+  do operations between column indices.
 -/
 import Mathlib.Algebra.Field.Basic
 import Mathlib.Data.ZMod.Basic
 import Mathlib.Data.Real.Basic
 
 
-inductive Expression (F : Type) where
-  | var : Nat -> Nat -> Expression F
-  | const : F -> Expression F
-  | add : Expression F -> Expression F -> Expression F
-  | mul : Expression F -> Expression F -> Expression F
+inductive Expression (N M : ℕ+) (F : Type) where
+  | var : ZMod M -> Fin N -> Expression N M F
+  | const : F -> Expression N M F
+  | add : Expression N M F -> Expression N M F -> Expression N M F
+  | mul : Expression N M F -> Expression N M F -> Expression N M F
 deriving Repr -- TODO more efficient string representation
 
 
 
-structure TwoRows (F : Type) [CommRing F] where
-  this : Expression F
-  next : Expression F
+structure TwoRows (N M : ℕ+) (F : Type) [CommRing F] where
+  this : Expression N M F
+  next : Expression N M F
 
-def Inputs (N M : ℕ+) (F : Type) := (Fin N) → (Fin M) → F
+def Inputs (N M : ℕ+) (F : Type) := (ZMod M) → (Fin N) → F
 
 namespace Expression
-variable {F : Type} [CommRing F]
+variable {N M : ℕ+} {F : Type} [CommRing F]
 -- a few variables to work with
 
-def x : Expression F := var 0 0
-def y : Expression F := var 0 1
-def z : Expression F := var 0 2
+def x : Expression N M F := var 0 0
+def y : Expression N M F := var 0 1
+def z : Expression N M F := var 0 2
 
-def x₀ : Expression F := var 0 0
-def x₁ : Expression F := var 1 0
-def X : TwoRows F := ⟨ x₀, x₁ ⟩
+def x₀ : Expression N M F := var 0 0
+def x₁ : Expression N M F := var 1 0
+def X : TwoRows N M F := ⟨ x₀, x₁ ⟩
 
-def y₀ : Expression F := var 0 1
-def y₁ : Expression F := var 1 1
-def Y : TwoRows F := ⟨ y₀, y₁ ⟩
+def y₀ : Expression N M F := var 0 1
+def y₁ : Expression N M F := var 1 1
+def Y : TwoRows N M F := ⟨ y₀, y₁ ⟩
 
-def z₀ : Expression F := var 0 2
-def z₁ : Expression F := var 1 2
-def Z : TwoRows F := ⟨ z₀, z₁ ⟩
+def z₀ : Expression N M F := var 0 2
+def z₁ : Expression N M F := var 1 2
+def Z : TwoRows N M F := ⟨ z₀, z₁ ⟩
 
 -- combine expressions elegantly
 
-instance : Zero (Expression F) where
+instance : Zero (Expression N M F) where
   zero := const 0
 
-instance : One (Expression F) where
+instance : One (Expression N M F) where
   one := const 1
 
-instance : Add (Expression F) where
+instance : Add (Expression N M F) where
   add := add
 
-instance : Neg (Expression F) where
+instance : Neg (Expression N M F) where
   neg e := mul (const (-1)) e
 
-instance : Sub (Expression F) where
+instance : Sub (Expression N M F) where
   sub e₁ e₂ := add e₁ (-e₂)
 
-instance : Mul (Expression F) where
+instance : Mul (Expression N M F) where
   mul := mul
 
-instance : Coe F (Expression F) where
+instance : Coe F (Expression N M F) where
   coe f := const f
 
-instance : HMul F (Expression F) (Expression F) where
+instance : HMul F (Expression N M F) (Expression N M F) where
   hMul := fun f e => mul f e
 
-def zero : Expression F := 0
-def one : Expression F := 1
-def E (F: Type) [CommRing F] := Expression F
+def zero : Expression N M F := 0
+def one : Expression N M F := 1
+def E (F: Type) [CommRing F] := Expression N M F
 
 -- evaluate an expression
 
-def eval {N M : ℕ+} (env : Inputs N M F) : Expression F -> F
+def eval {N M : ℕ+} (env : Inputs N M F) : Expression N M F -> F
   | var i j => env i j
   | const f => f
   | add e₁ e₂ => eval env e₁ + eval env e₂
@@ -88,7 +91,7 @@ def eval {N M : ℕ+} (env : Inputs N M F) : Expression F -> F
 end Expression
 
 structure MultiPoly (N M : ℕ+) (F : Type) [CommRing F] where
-  expr : Expression F
+  expr : Expression N M F
 deriving Repr
 
 namespace MultiPoly
@@ -101,15 +104,15 @@ def eval (P: MultiPoly N M F) (env : Inputs N M F) : F := P.expr.eval env
 
 end MultiPoly
 
-
+/-
 -- simpler inputs for specific variable layouts
 namespace Inputs
 
 def of1 {F : Type} (f : F) : Inputs 1 1 F := fun _ _ => f
 
 def of1x2 {F : Type} (f₀ f₁ : F) : Inputs 1 2 F
-  | 0, 0 => f₀
-  | 0, 1 => f₁
+  | 0, Fin 0 => f₀
+  | 0, Fin 1 => f₁
 
 def of2x1 {F : Type} (f₀ f₁ : F) : Inputs 2 1 F
   | 0, 0 => f₀
@@ -146,7 +149,6 @@ end Inputs
 -- end Expression
 
 -- examples of expressions
-
 
 section
 open Expression
@@ -187,3 +189,5 @@ def Fib : Inputs 2 2 ℚ
 #eval Fibonacci2.eval Fib
 
 end
+
+-/
