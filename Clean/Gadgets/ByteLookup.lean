@@ -10,7 +10,7 @@ namespace ByteLookup
 open Expression
 variable {p : ℕ} [Fact p.Prime] [Fact (p > 512)]
 
-def lookup (N M : ℕ+) (x : Expression (F p)) : LookupArgument p N M :=
+def lookup (N M : ℕ+) (x : Expression N M (F p)) : LookupArgument p N M :=
 {
   prop := fun env => (x.eval env).val < 256
 }
