@@ -8,7 +8,7 @@ import Mathlib.Data.ZMod.Basic
 /-
   Equality constraint gadget: x and y must be equal
 -/
-namespace Eq
+namespace Equality
 open Expression
 variable {p : ℕ} [Fact p.Prime]
 
@@ -45,4 +45,4 @@ instance EqConstraint (N M : ℕ+) (x y: Expression N M (F p)) : Constraint N M 
   equiv := equiv N M x y
 }
 
-end Eq
+end Equality
