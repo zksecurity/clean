@@ -13,11 +13,27 @@ variable (N M : ℕ+) (p : ℕ) [Fact p.Prime]
 -/
 def RowConstraint := ZMod M -> GenericConstraint p N M
 
+/--
+  A TableConstraint is a constraint that applies to a table.
+  It is either
+  - a boundary constraint, which applies to one specific row of the table,
+  - an everyRow constraint, which applies to every row of the table,
+  - an everyRowExceptLast constraint, which applies to every row except the last one.
+-/
 inductive TableConstraint where
   | boundary : ZMod M -> RowConstraint N M p -> TableConstraint
   | everyRow : RowConstraint N M p -> TableConstraint
   | everyRowExceptLast : RowConstraint N M p -> TableConstraint
 
+/--
+  A Table is a structure that represents a table of size N x M.
+  It contains a list of constraints that apply to the table,
+  and a specification.
+
+  The equivalence theorem states the following:
+  for all traces, given that all lookups are satisfied,
+  the spec is satisfied if and only if all constraints are satisfied.
+-/
 structure Table where
   constraints : List (TableConstraint N M p)
   spec : Inputs N M (F p) -> Prop
