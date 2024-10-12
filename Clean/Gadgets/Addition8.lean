@@ -16,7 +16,7 @@ open Expression
 variable {p : ℕ} [p_is_prime: Fact p.Prime] [p_large_enough: Fact (p > 512)]
 instance : CommRing (F p) := ZMod.commRing p
 
-def circuit (N M : ℕ+) (x y out carry : Expression (F p)) : GenericConstraint p N M :=
+def circuit (N M : ℕ+) (x y out carry : Expression N M (F p)) : GenericConstraint p N M :=
   GenericConstraint.mk
     [
       x + y - out - carry * (const 256)
@@ -30,7 +30,7 @@ def circuit (N M : ℕ+) (x y out carry : Expression (F p)) : GenericConstraint 
       Boolean.circuit N M carry
     ]
 
-def spec (N M : ℕ+) (x y out carry: Expression (F p)) : Inputs N M (F p) -> Prop :=
+def spec (N M : ℕ+) (x y out carry: Expression N M (F p)) : Inputs N M (F p) -> Prop :=
   (fun env =>
       have x := x.eval env;
       have y := y.eval env;
@@ -93,7 +93,7 @@ theorem soundness_one_carry (x y out : F p):
     · simp; exact Nat.add_lt_add hx hy
 
 
-theorem equiv (N M : ℕ+) (x y out carry: Expression (F p)) :
+theorem equiv (N M : ℕ+) (x y out carry: Expression N M (F p)) :
   (∀ X,
     (forallList (fullLookupSet (circuit N M x y out carry)) (fun lookup => lookup.prop X))
     -> (
@@ -193,7 +193,7 @@ theorem equiv (N M : ℕ+) (x y out carry: Expression (F p)) :
       · apply ZMod.val_injective
 
 
-instance (N M : ℕ+) (x y out carry : Expression (F p)) : Constraint N M p :=
+instance (N M : ℕ+) (x y out carry : Expression N M (F p)) : Constraint N M p :=
 {
   circuit := circuit N M x y out carry,
   spec := spec N M x y out carry,

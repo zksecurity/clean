@@ -24,20 +24,22 @@ structure LookupArgument (N M : ℕ+) where
 -/
 inductive GenericConstraint (N M : ℕ+) where
     | mk
-    (polys : List (Expression (F p)))
+    (polys : List (Expression N M (F p)))
     (lookups : List (LookupArgument p N M))
     (subConstraints : List (GenericConstraint N M))
 
 -- compute the full set of constraints that are implied by this constraint
-def fullConstraintSet {N M : ℕ+} {p : ℕ} [Fact p.Prime] (x : GenericConstraint p N M) : List (Expression (F p)) :=
+@[simp]
+def fullConstraintSet {N M : ℕ+} {p : ℕ} [Fact p.Prime] (x : GenericConstraint p N M) : List (Expression N M (F p)) :=
   match x with
     | GenericConstraint.mk polys _ subConstraints => polys ++ (foldl [] subConstraints)
 where
-  foldl : List (Expression (F p)) → List (GenericConstraint p N M) → List (Expression (F p))
+  foldl : List (Expression N M (F p)) → List (GenericConstraint p N M) → List (Expression N M (F p))
     | arr, [] => arr
     | arr, (t :: ts) => foldl (arr ++ fullConstraintSet t) ts
 
 -- compute the full set of lookup arguments that are implied by this constraint
+@[simp]
 def fullLookupSet {N M : ℕ+} {p : ℕ} [Fact p.Prime] (x : GenericConstraint p N M) : List (LookupArgument p N M) :=
   match x with
     | GenericConstraint.mk _ lookups subConstraints => lookups ++ (foldl [] subConstraints)
@@ -46,6 +48,7 @@ where
     | arr, [] => arr
     | arr, (t :: ts) => foldl (arr ++ fullLookupSet t) ts
 
+@[simp]
 def forallList {α : Type} (v : List α) (p : α -> Prop) : Prop :=
   match v with
   | [] => true
