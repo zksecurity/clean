@@ -25,6 +25,11 @@ inductive TableConstraint where
   | everyRow : RowConstraint N M p -> TableConstraint
   | everyRowExceptLast : RowConstraint N M p -> TableConstraint
 
+def RowLookup := ZMod M -> LookupArgument p N M
+
+inductive TableLookup where
+  | everyRow : RowLookup N M p -> TableLookup
+
 /--
   A Table is a structure that represents a table of size N x M.
   It contains a list of constraints that apply to the table,
@@ -36,16 +41,12 @@ inductive TableConstraint where
 -/
 structure Table where
   constraints : List (TableConstraint N M p)
+  lookups : List (TableLookup N M p)
   spec : Inputs N M (F p) -> Prop
   equiv :
-    ∀ trace : Inputs N M (F p), -- the inputs to the circuit
-    (∀ row : ZMod M, forallList constraints (fun c => match c with
-      | TableConstraint.boundary constraintRow c
-        => forallList (fullLookupSet (c row)) (fun lookup => row = constraintRow -> lookup.prop trace)
-      | TableConstraint.everyRow c
-        => forallList (fullLookupSet (c row)) ((fun lookup => lookup.prop trace))
-      | TableConstraint.everyRowExceptLast c
-        => forallList (fullLookupSet (c row)) ((fun lookup => row.val < (M-1) -> lookup.prop trace)))
+    ∀ trace : Inputs N M (F p),
+    (∀ row : ZMod M, forallList lookups (fun c => match c with
+      | TableLookup.everyRow lookup => (lookup row).prop trace)
     ) ->
     (
       (∀ row : ZMod M, forallList constraints (fun c => match c with
