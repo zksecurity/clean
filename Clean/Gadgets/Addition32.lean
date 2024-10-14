@@ -7,18 +7,15 @@ import Mathlib.Data.ZMod.Basic
 namespace Addition32
 open Expression
 
-variable {p : ℕ} [Fact p.Prime]
+variable {p : ℕ} [p_is_prime: Fact p.Prime] [p_large_enough: Fact (p > 2 ^ 33)]
 
 -- Addition of elements from GL(2 ^ 32) as
 -- x = x₀ + x₁ * 2 ^ 8 + x₂ * 2 ^ 16 + x₃ * 2 ^ 24 : ∀ i xi < 2 ^ 8
 
 
-def lookup (N M : ℕ+) (x₀ x₁ x₂ x₃ : Expression (F p)) (n : ℕ+) : LookupArgument p N M :=
+def lookup (N M : ℕ+) (x : Expression (F p)) (n : ℕ+) : LookupArgument p N M :=
   {
-    prop := fun env =>   (x₀.eval env).val < n
-                       ∧ (x₁.eval env).val < n
-                       ∧ (x₂.eval env).val < n
-                       ∧ (x₃.eval env).val < n
+    prop := fun env => (x.eval env).val < n
   }
 
 def AdditionConstraint (N M : ℕ+) (x₀ x₁ x₂ x₃ y₀ y₁ y₂ y₃ z₀ z₁ z₂ z₃ c₀ c₁ c₂ c₃ : Expression (F p))
@@ -32,9 +29,9 @@ def AdditionConstraint (N M : ℕ+) (x₀ x₁ x₂ x₃ y₀ y₁ y₂ y₃ z�
     ]
 
     [
-      lookup N M x₀ x₁ x₂ x₃ (2 ^ 8),
-      lookup N M y₀ y₁ y₂ y₃ (2 ^ 8),
-      lookup N M z₀ z₁ z₂ z₃ (2 ^ 9),
+      lookup N M x₀ (2 ^ 8), lookup N M x₁ (2 ^ 8), lookup N M x₂ (2 ^ 8), lookup N M x₃ (2 ^ 8),
+      lookup N M y₀ (2 ^ 8), lookup N M y₁ (2 ^ 8), lookup N M y₂ (2 ^ 8), lookup N M y₃ (2 ^ 8),
+      lookup N M z₀ (2 ^ 8), lookup N M z₁ (2 ^ 8), lookup N M z₂ (2 ^ 8), lookup N M z₃ (2 ^ 8),
     ]
 
     [
@@ -44,7 +41,6 @@ def AdditionConstraint (N M : ℕ+) (x₀ x₁ x₂ x₃ y₀ y₁ y₂ y₃ z�
       Boolean.circuit N M c₃
     ]
 
-
 def spec (N M : ℕ+) (x₀ x₁ x₂ x₃ y₀ y₁ y₂ y₃ z₀ z₁ z₂ z₃ c₀ c₁ c₂ c₃ : Expression (F p))
   : Inputs N M (F p) -> Prop :=
     (fun env =>
@@ -52,13 +48,43 @@ def spec (N M : ℕ+) (x₀ x₁ x₂ x₃ y₀ y₁ y₂ y₃ z₀ z₁ z₂ z�
       have y := (y₀.eval env) + (y₁.eval env) * 2 ^ 8 + (y₂.eval env) * 2 ^ 16 + (y₃.eval env) * 2 ^ 24;
       have z := (z₀.eval env) + (z₁.eval env) * 2 ^ 8 + (z₂.eval env) * 2 ^ 16 + (z₃.eval env) * 2 ^ 24;
       have c₃ := c₃.eval env;
-      (z.val = x.val + y.val % 2 ^ 32)
+      z.val = (x.val + y.val) % 2 ^ 32
       ∧ c₃.val  = (x.val + y.val) / 2 ^ 32
     )
 
--- def Num32 := { x : F p × F p × F p × F p
---                //  x.1.val < 2 ^ 8 ∧ x.2.1.val < 2 ^ 8
---                    ∧ x.2.1.val < 2 ^ 8 ∧ x.2.1.val < 2 ^ 8 }
+theorem val_dist1 (x y z : F p) : (x + y + z).val = (x.val + y.val + z.val) % p := by
+  rw [ZMod.val_add, ZMod.val_add x y, add_comm, Nat.add_mod_mod, add_comm]
+
+theorem val_dist2 (x y z w : F p) : (x + y + z + w).val = (x.val + y.val + z.val + w.val) % p := by
+  rw [val_dist1, ZMod.val_add, add_assoc, add_comm, Nat.add_mod_mod, ← add_assoc]
+  ring
+
+theorem addition_bound (x₀ x₁ x₂ x₃ y₀ y₁ y₂ y₃ : F p) :
+  x₀.val < 2 ^ 8 -> x₁.val < 2 ^ 8 -> x₂.val < 2 ^ 8 -> x₃.val < 2 ^ 8 ->
+  y₀.val < 2 ^ 8 -> y₁.val < 2 ^ 8 -> y₂.val < 2 ^ 8 -> y₃.val < 2 ^ 8 ->
+  (x₀ + x₁ * 2 ^ 8 + x₂ * 2 ^ 16 + x₃  * 2 ^ 24).val +
+  (y₀ + y₁ * 2 ^ 8 + y₂ * 2 ^ 16 + y₃  * 2 ^ 24).val < 2 ^ 33 := by
+
+    have le_256_p : 256 < p := by linarith [p_large_enough.1]
+    have le_65536_p : 65536 < p := by linarith [p_large_enough.1]
+    have le_16777216_p : 16777216 < p := by linarith [p_large_enough.1]
+
+    have val_256_is_256 : (256 : F p).val = 256 := ZMod.val_natCast_of_lt le_256_p
+    have val_65536_is_65536 : (65536 : F p).val = 65536 := ZMod.val_natCast_of_lt le_65536_p
+    have val_16777216_is_16777216 : (16777216 : F p).val = 16777216 := ZMod.val_natCast_of_lt le_16777216_p
+
+    intro hx₀ hx₁ hx₂ hx₃ hy₀ hy₁ hy₂ hy₃
+    rw [val_dist2, val_dist2,  Nat.mod_eq_of_lt,  Nat.mod_eq_of_lt]
+    repeat' rw [ZMod.val_mul, Nat.mod_eq_of_lt]
+    norm_num
+
+    rw [val_256_is_256, val_65536_is_65536, val_16777216_is_16777216]
+    linarith
+
+    all_goals sorry
+
+
+
 
 theorem equiv (N M : ℕ+) (x₀ x₁ x₂ x₃ y₀ y₁ y₂ y₃ z₀ z₁ z₂ z₃ c₀ c₁ c₂ c₃ : Expression (F p)) :
   (∀ X,
@@ -85,6 +111,16 @@ theorem equiv (N M : ℕ+) (x₀ x₁ x₂ x₃ y₀ y₁ y₂ y₃ z₀ z₁ z�
     simp [forallList, Boolean.spec] at equivBoolean3
     rw [equivBoolean0, equivBoolean1, equivBoolean2, equivBoolean3, spec]
 
+    simp [eval]
+
+    intro hx0_byte hx1_byte hx2_byte hx3_byte
+          hy0_byte hy1_byte hy2_byte hy3_byte
+          hz0_byte hz1_byte hz2_byte hz3_byte
+
+    simp [lookup] at hx0_byte hx1_byte hx2_byte hx3_byte
+                     hy0_byte hy1_byte hy2_byte hy3_byte
+                     hz0_byte hz1_byte hz2_byte hz3_byte
+
     set x₀ := x₀.eval X
     set x₁ := x₁.eval X
     set x₂ := x₂.eval X
@@ -105,13 +141,45 @@ theorem equiv (N M : ℕ+) (x₀ x₁ x₂ x₃ y₀ y₁ y₂ y₃ z₀ z₁ z�
     set c₂ := c₂.eval X
     set c₃ := c₃.eval X
 
-    intro h₁ h₂ h₃
-    simp [eval]
     constructor
     . intro h
-      rcases (And.right h) with
-      --⟨hxyz1, hxyz2, hxyz3, hzc0 | hoc0, hzc1 | hozc1, hzc2 | hozc2, hzc3 | hozc3⟩
-      ⟨hxyz1, hxyz2, hxyz3, hc0, hc1, hc2, hc3⟩
+      rcases h with ⟨hxyz0, hxyz1, hxyz2, hxyz3, hc0, hc1, hc2, hc3⟩
+
+      have hz0 : z₀ = x₀ + y₀ - c₀ * 2 ^ 8 := by
+        rw [← sub_eq_add_neg, ← sub_eq_add_neg, sub_right_comm, sub_eq_zero, eq_comm] at hxyz0
+        exact hxyz0
+
+      have hz1 : z₁ = x₁ + y₁ + c₀ - c₁ * 2 ^ 8 := by
+        rw [← sub_eq_add_neg, ← sub_eq_add_neg, sub_right_comm, sub_eq_zero, eq_comm] at hxyz1
+        exact hxyz1
+
+      have hz2 : z₂ = x₂ + y₂ + c₁ - c₂ * 2 ^ 8 := by
+        rw [← sub_eq_add_neg, ← sub_eq_add_neg, sub_right_comm, sub_eq_zero, eq_comm] at hxyz2
+        exact hxyz2
+
+      have hz3 : z₃ = x₃ + y₃ + c₂ - c₃ * 2 ^ 8 := by
+        rw [← sub_eq_add_neg, ← sub_eq_add_neg, sub_right_comm, sub_eq_zero, eq_comm] at hxyz3
+        exact hxyz3
+
+      have hzexpr : (z₀ + z₁ * 2 ^ 8 + z₂ * 2 ^ 16 + z₃ * 2 ^ 24).val
+        = (((x₀ + x₁ * 2 ^ 8 + x₂ * 2 ^ 16 + x₃ * 2 ^ 24) +
+          (y₀ + y₁ * 2 ^ 8 + y₂ * 2 ^ 16 + y₃ * 2 ^ 24)) - c₃ * 2 ^ 32).val := by
+        rw [hz0, hz1, hz2, hz3]
+        ring
+
+      rw [hzexpr, sub_eq_add_neg, ZMod.val_add, ← neg_mul, ZMod.val_mul]
+      simp
+      -- soundness
+      rcases hc3 with hzc3 | hoc3
+      . apply And.intro
+        rw [hzc3]
+        simp
+        rw [ZMod.val_add]
+        simp
+        sorry
+
       sorry
 
     . sorry
+
+end Addition32
