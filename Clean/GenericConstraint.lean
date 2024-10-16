@@ -11,8 +11,8 @@ variable (N : ℕ+) (p : ℕ) [Fact p.Prime]
   as a function that takes the inputs and returns a Prop.
   TODO: replace with an actual structure, maybe a class as below for Constraint
 -/
-structure LookupArgument (N M : ℕ+) where
-  prop : Inputs N M (F p) -> Prop
+structure LookupArgument (N: ℕ+) (M : ℕ) where
+  prop : InputsOfLength N (F p) M -> Prop
 
 /-
   A GenericConstraint is a constraint that can be instantiated with a specific set of inputs.
@@ -22,7 +22,7 @@ structure LookupArgument (N M : ℕ+) where
   - lookups: the list of lookup arguments that are assumed to hold for the inputs
   - subConstraints: the list of sub-constraints that are instantiated by this constraint
 -/
-inductive GenericConstraint (N M : ℕ+) where
+inductive GenericConstraint (N: ℕ+) (M: ℕ) where
     | mk
     (polys : List (Expression N M (F p)))
     (lookups : List (LookupArgument p N M))
@@ -30,7 +30,7 @@ inductive GenericConstraint (N M : ℕ+) where
 
 -- compute the full set of constraints that are implied by this constraint
 @[simp]
-def fullConstraintSet {N M : ℕ+} {p : ℕ} [Fact p.Prime] (x : GenericConstraint p N M) : List (Expression N M (F p)) :=
+def fullConstraintSet {N: ℕ+} {M : ℕ} {p : ℕ} [Fact p.Prime] (x : GenericConstraint p N M) : List (Expression N M (F p)) :=
   match x with
     | GenericConstraint.mk polys _ subConstraints => polys ++ (foldl [] subConstraints)
 where
@@ -40,7 +40,7 @@ where
 
 -- compute the full set of lookup arguments that are implied by this constraint
 @[simp]
-def fullLookupSet {N M : ℕ+} {p : ℕ} [Fact p.Prime] (x : GenericConstraint p N M) : List (LookupArgument p N M) :=
+def fullLookupSet {N : ℕ+} {M : ℕ} {p : ℕ} [Fact p.Prime] (x : GenericConstraint p N M) : List (LookupArgument p N M) :=
   match x with
     | GenericConstraint.mk _ lookups subConstraints => lookups ++ (foldl [] subConstraints)
 where
@@ -60,19 +60,19 @@ def forallList {α : Type} (v : List α) (p : α -> Prop) : Prop :=
   The equivalence theorem states that the full set of constraints implied by the circuit
   is satisfied if and only if the spec is satisfied, given as assumptions the lookups.
 -/
-class Constraint (N M : ℕ+) (p : ℕ) [Fact p.Prime] :=
+class Constraint (N : ℕ+) (M : ℕ) (p : ℕ) [Fact p.Prime] :=
     -- the constraints
     (circuit : GenericConstraint p N M)
 
     -- specification
-    (spec : Inputs N M (F p) -> Prop)
+    (spec : InputsOfLength N (F p) M -> Prop)
 
     -- equivalence theorem
     (equiv :
-      (∀ X,
+      (∀ X : InputsOfLength N (F p) M,
         (forallList (fullLookupSet circuit) (fun lookup => lookup.prop X))
         -> (
-          (forallList (fullConstraintSet circuit) (fun constraint => constraint.eval X = 0))
+          (forallList (fullConstraintSet circuit) (fun constraint => X.eval constraint = 0))
           ↔
           spec X
         )

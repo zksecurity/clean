@@ -18,14 +18,14 @@ def circuit (N M : ℕ+) (x y : Expression N M (F p)) : GenericConstraint p N M 
     []
     []
 
-def spec (N M : ℕ+) (x y: Expression N M (F p)) : Inputs N M (F p) -> Prop :=
-  fun env => (x.eval env) = (y.eval env)
+def spec (N M : ℕ+) (x y: Expression N M (F p)) : InputsOfLength N (F p) M -> Prop :=
+  fun trace => (trace.eval x) = (trace.eval y)
 
 theorem equiv (N M : ℕ+) (x y: Expression N M (F p)) :
   (∀ X,
     (forallList (fullLookupSet (circuit N M x y)) (fun lookup => lookup.prop X))
     -> (
-      (forallList (fullConstraintSet (circuit N M x y)) (fun constraint => constraint.eval X = 0))
+      (forallList (fullConstraintSet (circuit N M x y)) (fun constraint => X.eval constraint = 0))
       ↔
       spec N M x y X
     )
@@ -33,7 +33,7 @@ theorem equiv (N M : ℕ+) (x y: Expression N M (F p)) :
 
   simp [forallList, fullLookupSet, fullConstraintSet]
   intro X
-  simp [Expression.eval]
+  simp [InputsOfLength.eval]
   rw [←sub_eq_add_neg, sub_eq_zero]
   simp [spec]
 

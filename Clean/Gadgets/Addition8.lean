@@ -30,12 +30,12 @@ def circuit (N M : ℕ+) (x y out carry : Expression N M (F p)) : GenericConstra
       Boolean.circuit N M carry
     ]
 
-def spec (N M : ℕ+) (x y out carry: Expression N M (F p)) : Inputs N M (F p) -> Prop :=
-  (fun env =>
-      have x := x.eval env;
-      have y := y.eval env;
-      have out := out.eval env;
-      have carry := carry.eval env;
+def spec (N M : ℕ+) (x y out carry: Expression N M (F p)) : InputsOfLength N (F p) M -> Prop :=
+  (fun trace =>
+      have x := trace.eval x;
+      have y := trace.eval y;
+      have out := trace.eval out;
+      have carry := trace.eval carry;
       (out.val = (x.val + y.val) % 256) ∧ carry.val = (x.val + y.val) / 256)
 
 
@@ -97,7 +97,7 @@ theorem equiv (N M : ℕ+) (x y out carry: Expression N M (F p)) :
   (∀ X,
     (forallList (fullLookupSet (circuit N M x y out carry)) (fun lookup => lookup.prop X))
     -> (
-      (forallList (fullConstraintSet (circuit N M x y out carry)) (fun constraint => constraint.eval X = 0))
+      (forallList (fullConstraintSet (circuit N M x y out carry)) (fun constraint => X.eval constraint = 0))
       ↔
       spec N M x y out carry X
     )
@@ -109,11 +109,11 @@ theorem equiv (N M : ℕ+) (x y out carry: Expression N M (F p)) :
   simp [forallList, Boolean.spec] at equivBoolean
   rw [equivBoolean, spec]
 
-  simp [eval]
-  set x := x.eval X
-  set y := y.eval X
-  set out := out.eval X
-  set carry := carry.eval X
+  simp [InputsOfLength.eval]
+  set x := X.eval x
+  set y := X.eval y
+  set out := X.eval out
+  set carry := X.eval carry
 
   intro hx_byte
   intro hy_byte

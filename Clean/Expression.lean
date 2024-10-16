@@ -14,44 +14,49 @@ import Mathlib.Algebra.Field.Basic
 import Mathlib.Data.ZMod.Basic
 import Mathlib.Data.Real.Basic
 
+def Row (M : ℕ+) (F: Type) := Fin M -> F
 
-inductive Expression (N M : ℕ+) (F : Type) where
-  | var : ZMod M -> Fin N -> Expression N M F
+inductive Expression (N : ℕ+) (M : ℕ) (F : Type) where
+  | var : Fin M -> Fin N -> Expression N M F
   | const : F -> Expression N M F
   | add : Expression N M F -> Expression N M F -> Expression N M F
   | mul : Expression N M F -> Expression N M F -> Expression N M F
 deriving Repr -- TODO more efficient string representation
 
-
-
 structure TwoRows (N M : ℕ+) (F : Type) [CommRing F] where
   this : Expression N M F
   next : Expression N M F
 
-def Inputs (N M : ℕ+) (F : Type) := (ZMod M) → (Fin N) → F
+inductive Inputs (N : ℕ+) (F : Type) :=
+  | empty : Inputs N F
+  | cons : Row N F -> Inputs N F -> Inputs N F
+
+
+def Inputs.len {N : ℕ+} {F : Type} : Inputs N F -> ℕ
+  | Inputs.empty => 0
+  | Inputs.cons _ rest => Nat.succ rest.len
+
+-- subtype of inputs with a fixed length
+def InputsOfLength (N : ℕ+) (F : Type) (len : ℕ) : Type := { env : Inputs N F // env.len = len }
+
+def Inputs.getLe {N: ℕ+} {F : Type} : (env : Inputs N F) -> (row : Fin env.len) -> (j : Fin N) -> F
+  | Inputs.cons currRow _, ⟨0, _⟩, columnIndex => currRow columnIndex
+  | Inputs.cons _ rest, ⟨Nat.succ i, h⟩, j => getLe rest ⟨i, Nat.le_of_succ_le_succ h⟩ j
+
+def InputsOfLength.get {N: ℕ+} {M : ℕ} {F : Type} : (env : InputsOfLength N F M) -> (i : Fin M) -> (j : Fin N) -> F
+  | ⟨env, h⟩, i, j => env.getLe (by rw [←h] at i; exact i) j
+
+-- evaluate an expression over a trace
+def InputsOfLength.eval {N: ℕ+} {M : ℕ} {F : Type} [CommRing F] : (env : InputsOfLength N F M) -> Expression N M F -> F
+  | env, Expression.var i j => env.get i j
+  | _, Expression.const f => f
+  | env, Expression.add e₁ e₂ => env.eval e₁ + env.eval e₂
+  | env, Expression.mul e₁ e₂ => eval env e₁ * eval env e₂
 
 namespace Expression
-variable {N M : ℕ+} {F : Type} [CommRing F]
--- a few variables to work with
-
-def x : Expression N M F := var 0 0
-def y : Expression N M F := var 0 1
-def z : Expression N M F := var 0 2
-
-def x₀ : Expression N M F := var 0 0
-def x₁ : Expression N M F := var 1 0
-def X : TwoRows N M F := ⟨ x₀, x₁ ⟩
-
-def y₀ : Expression N M F := var 0 1
-def y₁ : Expression N M F := var 1 1
-def Y : TwoRows N M F := ⟨ y₀, y₁ ⟩
-
-def z₀ : Expression N M F := var 0 2
-def z₁ : Expression N M F := var 1 2
-def Z : TwoRows N M F := ⟨ z₀, z₁ ⟩
+variable {N : ℕ+} {M : ℕ} {F : Type} [CommRing F]
 
 -- combine expressions elegantly
-
 instance : Zero (Expression N M F) where
   zero := const 0
 
@@ -80,10 +85,10 @@ def zero : Expression N M F := 0
 def one : Expression N M F := 1
 def E (F: Type) [CommRing F] := Expression N M F
 
--- evaluate an expression
 
-def eval {N M : ℕ+} (env : Inputs N M F) : Expression N M F -> F
-  | var i j => env i j
+-- evaluate an expression over a trace
+def eval (env : Inputs N F) : Expression N env.len F -> F
+  | var i j => env.getLe i j
   | const f => f
   | add e₁ e₂ => eval env e₁ + eval env e₂
   | mul e₁ e₂ => eval env e₁ * eval env e₂
@@ -92,17 +97,19 @@ end Expression
 
 structure MultiPoly (N M : ℕ+) (F : Type) [CommRing F] where
   expr : Expression N M F
-deriving Repr
+--deriving Repr
 
-namespace MultiPoly
--- define a multivariate polynomial as an
--- expression with a _fixed number of input variables_
-variable {N M : ℕ+}
-variable {F : Type} [CommRing F]
+-- namespace MultiPoly
+-- -- define a multivariate polynomial as an
+-- -- expression with a _fixed number of input variables_
+-- variable {N M : ℕ+}
+-- variable {F : Type} [CommRing F]
 
-def eval (P: MultiPoly N M F) (env : Inputs N M F) : F := P.expr.eval env
+-- def eval (P: MultiPoly N M F) (env : Inputs N M F) : F := P.expr.eval env
 
-end MultiPoly
+-- end MultiPoly
+
+
 
 /-
 -- simpler inputs for specific variable layouts
