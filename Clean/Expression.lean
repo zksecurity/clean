@@ -14,7 +14,6 @@ import Mathlib.Algebra.Field.Basic
 import Mathlib.Data.ZMod.Basic
 import Mathlib.Data.Real.Basic
 
-def Row (M : ℕ+) (F: Type) := Fin M -> F
 
 inductive Expression (N : ℕ+) (M : ℕ) (F : Type) where
   | var : Fin M -> Fin N -> Expression N M F
@@ -23,14 +22,15 @@ inductive Expression (N : ℕ+) (M : ℕ) (F : Type) where
   | mul : Expression N M F -> Expression N M F -> Expression N M F
 deriving Repr -- TODO more efficient string representation
 
-structure TwoRows (N M : ℕ+) (F : Type) [CommRing F] where
-  this : Expression N M F
-  next : Expression N M F
+def Row (M : ℕ+) (F: Type) := Fin M -> F
+
+structure TwoRows (M : ℕ+) (F : Type) where
+  this : Row M F
+  next : Row M F
 
 inductive Inputs (N : ℕ+) (F : Type) :=
   | empty : Inputs N F
   | cons : Row N F -> Inputs N F -> Inputs N F
-
 
 def Inputs.len {N : ℕ+} {F : Type} : Inputs N F -> ℕ
   | Inputs.empty => 0
