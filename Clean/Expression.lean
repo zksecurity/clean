@@ -46,6 +46,10 @@ def Trace.len {N : ℕ+} {F : Type} : Trace N F -> ℕ
   | <+> => 0
   | rest +> _ => Nat.succ rest.len
 
+/--
+  Induction principle that applies for every row in the trace, where the inductive step takes into
+  acount the previous two rows.
+-/
 def Trace.everyRowTwoRowsInduction {M : ℕ+} {F : Type} {P : Trace M F → Sort*}
     (zero : P (<+>))
     (one : ∀ row : Row M F, P (empty +> row))
