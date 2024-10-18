@@ -12,16 +12,13 @@ namespace Equality
 open Expression
 variable {p : ℕ} [Fact p.Prime]
 
-def circuit (N M : ℕ+) (x y : Expression N M (F p)) : GenericConstraint p N M :=
-  GenericConstraint.mk
-    [x - y]
-    []
-    []
+def circuit (N : ℕ+) (M : ℕ) (x y : Expression N M (F p)) : ConstraintGadget p N M :=
+  ⟨[x-y], [], []⟩
 
-def spec (N M : ℕ+) (x y: Expression N M (F p)) : InputsOfLength N (F p) M -> Prop :=
+def spec (N : ℕ+) (M : ℕ) (x y: Expression N M (F p)) : TraceOfLength N M (F p) -> Prop :=
   fun trace => (trace.eval x) = (trace.eval y)
 
-theorem equiv (N M : ℕ+) (x y: Expression N M (F p)) :
+theorem equiv (N : ℕ+) (M : ℕ) (x y: Expression N M (F p)) :
   (∀ X,
     (forallList (fullLookupSet (circuit N M x y)) (fun lookup => lookup.prop X))
     -> (
@@ -33,12 +30,12 @@ theorem equiv (N M : ℕ+) (x y: Expression N M (F p)) :
 
   simp [forallList, fullLookupSet, fullConstraintSet]
   intro X
-  simp [InputsOfLength.eval]
+  simp [TraceOfLength.eval]
   rw [←sub_eq_add_neg, sub_eq_zero]
   simp [spec]
 
 
-instance EqConstraint (N M : ℕ+) (x y: Expression N M (F p)) : Constraint N M p :=
+instance EqConstraint (N : ℕ+) (M : ℕ) (x y: Expression N M (F p)) : Constraint N M p :=
 {
   circuit := circuit N M x y,
   spec := spec N M x y,

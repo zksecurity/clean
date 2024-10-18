@@ -16,21 +16,22 @@ open Expression
 variable {p : ℕ} [p_is_prime: Fact p.Prime] [p_large_enough: Fact (p > 512)]
 instance : CommRing (F p) := ZMod.commRing p
 
-def circuit (N : ℕ+) (M : ℕ) (x y out carry : Expression N M (F p)) : GenericConstraint p N M :=
-  GenericConstraint.mk
+def circuit (N : ℕ+) (M : ℕ) (x y out carry : Expression N M (F p)) : ConstraintGadget p N M :=
+  ⟨
     [
       x + y - out - carry * (const 256)
-    ]
+    ],
     [
       ByteLookup.lookup N M x,
       ByteLookup.lookup N M y,
       ByteLookup.lookup N M out,
-    ]
+    ],
     [
       Boolean.circuit N M carry
     ]
+  ⟩
 
-def spec (N : ℕ+) (M : ℕ) (x y out carry: Expression N M (F p)) : InputsOfLength N (F p) M -> Prop :=
+def spec (N : ℕ+) (M : ℕ) (x y out carry: Expression N M (F p)) : TraceOfLength N M (F p) -> Prop :=
   (fun trace =>
       have x := trace.eval x;
       have y := trace.eval y;
@@ -109,7 +110,7 @@ theorem equiv (N : ℕ+) (M : ℕ) (x y out carry: Expression N M (F p)) :
   simp [forallList, Boolean.spec] at equivBoolean
   rw [equivBoolean, spec]
 
-  simp [InputsOfLength.eval]
+  simp [TraceOfLength.eval]
   set x := X.eval x
   set y := X.eval y
   set out := X.eval out

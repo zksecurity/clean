@@ -11,13 +11,14 @@ namespace Boolean
 open Expression
 variable {p : ℕ} [Fact p.Prime]
 
-def circuit (N : ℕ+) (M : ℕ) (x : Expression N M (F p)) : GenericConstraint p N M :=
-  GenericConstraint.mk
-    [x * (x - 1)]
-    []
-    []
+def circuit (N : ℕ+) (M : ℕ) (x : Expression N M (F p)) : ConstraintGadget p N M :=
+  ⟨
+    [x * (x - 1)],
+    [],
+    [],
+  ⟩
 
-def spec (N : ℕ+) (M : ℕ) (x: Expression N M (F p)) : InputsOfLength N (F p) M -> Prop :=
+def spec (N : ℕ+) (M : ℕ) (x: Expression N M (F p)) : TraceOfLength N M (F p) -> Prop :=
   fun env => env.eval x = 0 ∨ env.eval x = 1
 
 theorem equiv (N : ℕ+) (M : ℕ) (x: Expression N M (F p)) :
@@ -34,7 +35,7 @@ theorem equiv (N : ℕ+) (M : ℕ) (x: Expression N M (F p)) :
   intro X
   constructor
   · intro h
-    simp [InputsOfLength.eval] at h
+    simp [TraceOfLength.eval] at h
     simp [spec]
     cases h with
     | inl h => left; exact h
@@ -42,7 +43,7 @@ theorem equiv (N : ℕ+) (M : ℕ) (x: Expression N M (F p)) :
           X.eval x = X.eval x + (-1) + 1 := by ring
           _ = 1 := by simp [h]
   · intro h
-    simp [InputsOfLength.eval]
+    simp [TraceOfLength.eval]
     simp [spec] at h
     cases h with
     | inl h => left ; exact h

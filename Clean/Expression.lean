@@ -22,32 +22,46 @@ inductive Expression (N : ℕ+) (M : ℕ) (F : Type) where
   | mul : Expression N M F -> Expression N M F -> Expression N M F
 deriving Repr -- TODO more efficient string representation
 
+/--
+  A Row is a mapping from the column inde to a value in the field F.
+-/
 def Row (M : ℕ+) (F: Type) := Fin M -> F
 
-structure TwoRows (M : ℕ+) (F : Type) where
-  this : Row M F
-  next : Row M F
+/--
+  A trace is an inductive list of rows.
+-/
+inductive Trace (N : ℕ+) (F : Type) :=
+  /-- An empty trace -/
+  | empty : Trace N F
+  /-- Add a row to the end of the trace -/
+  | cons (rest: Trace N F) (row: Row N F) : Trace N F
 
-inductive Inputs (N : ℕ+) (F : Type) :=
-  | empty : Inputs N F
-  | cons : Row N F -> Inputs N F -> Inputs N F
+@[inherit_doc] notation:67 "<+>" => Trace.empty
+@[inherit_doc] infixl:67 " +> " => Trace.cons
 
-def Inputs.len {N : ℕ+} {F : Type} : Inputs N F -> ℕ
-  | Inputs.empty => 0
-  | Inputs.cons _ rest => Nat.succ rest.len
+/--
+  The length of a trace is the number of rows it contains.
+-/
+def Trace.len {N : ℕ+} {F : Type} : Trace N F -> ℕ
+  | <+> => 0
+  | rest +> _ => Nat.succ rest.len
 
--- subtype of inputs with a fixed length
-def InputsOfLength (N : ℕ+) (F : Type) (len : ℕ) : Type := { env : Inputs N F // env.len = len }
+/--
+  A trace of length M is a trace with exactly M rows.
+-/
+def TraceOfLength (N : ℕ+) (M : ℕ) (F : Type)  : Type := { env : Trace N F // env.len = M }
 
-def Inputs.getLe {N: ℕ+} {F : Type} : (env : Inputs N F) -> (row : Fin env.len) -> (j : Fin N) -> F
-  | Inputs.cons currRow _, ⟨0, _⟩, columnIndex => currRow columnIndex
-  | Inputs.cons _ rest, ⟨Nat.succ i, h⟩, j => getLe rest ⟨i, Nat.le_of_succ_le_succ h⟩ j
+def Trace.getLe {N: ℕ+} {F : Type} : (env : Trace N F) -> (row : Fin env.len) -> (j : Fin N) -> F
+  | _ +> currRow, ⟨0, _⟩, columnIndex => currRow columnIndex
+  | rest +> _, ⟨Nat.succ i, h⟩, j => getLe rest ⟨i, Nat.le_of_succ_le_succ h⟩ j
 
-def InputsOfLength.get {N: ℕ+} {M : ℕ} {F : Type} : (env : InputsOfLength N F M) -> (i : Fin M) -> (j : Fin N) -> F
+def TraceOfLength.get {N: ℕ+} {M : ℕ} {F : Type} : (env : TraceOfLength N M F) -> (i : Fin M) -> (j : Fin N) -> F
   | ⟨env, h⟩, i, j => env.getLe (by rw [←h] at i; exact i) j
 
--- evaluate an expression over a trace
-def InputsOfLength.eval {N: ℕ+} {M : ℕ} {F : Type} [CommRing F] : (env : InputsOfLength N F M) -> Expression N M F -> F
+/--
+  Evaluation function of an expression over a trace.
+-/
+def TraceOfLength.eval {N: ℕ+} {M : ℕ} {F : Type} [CommRing F] : (env : TraceOfLength N M F) -> Expression N M F -> F
   | env, Expression.var i j => env.get i j
   | _, Expression.const f => f
   | env, Expression.add e₁ e₂ => env.eval e₁ + env.eval e₂
@@ -87,7 +101,7 @@ def E (F: Type) [CommRing F] := Expression N M F
 
 
 -- evaluate an expression over a trace
-def eval (env : Inputs N F) : Expression N env.len F -> F
+def eval (env : Trace N F) : Expression N env.len F -> F
   | var i j => env.getLe i j
   | const f => f
   | add e₁ e₂ => eval env e₁ + eval env e₂

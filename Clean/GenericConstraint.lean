@@ -12,39 +12,39 @@ variable (N : ℕ+) (p : ℕ) [Fact p.Prime]
   TODO: replace with an actual structure, maybe a class as below for Constraint
 -/
 structure LookupArgument (N: ℕ+) (M : ℕ) where
-  prop : InputsOfLength N (F p) M -> Prop
+  prop : TraceOfLength N M (F p) -> Prop
 
 /-
-  A GenericConstraint is a constraint that can be instantiated with a specific set of inputs.
+  A ConstraintGadget is a constraint that can be instantiated with a specific set of inputs.
   It is composed of
   - polys: the list of (multivariate) polynomials that make up the constraint, implicitly the
         constraint holds if all of these polynomials evaluate to 0
   - lookups: the list of lookup arguments that are assumed to hold for the inputs
   - subConstraints: the list of sub-constraints that are instantiated by this constraint
 -/
-inductive GenericConstraint (N: ℕ+) (M: ℕ) where
+inductive ConstraintGadget (N: ℕ+) (M: ℕ) where
     | mk
     (polys : List (Expression N M (F p)))
     (lookups : List (LookupArgument p N M))
-    (subConstraints : List (GenericConstraint N M))
+    (subConstraints : List (ConstraintGadget N M))
 
 -- compute the full set of constraints that are implied by this constraint
 @[simp]
-def fullConstraintSet {N: ℕ+} {M : ℕ} {p : ℕ} [Fact p.Prime] (x : GenericConstraint p N M) : List (Expression N M (F p)) :=
+def fullConstraintSet {N: ℕ+} {M : ℕ} {p : ℕ} [Fact p.Prime] (x : ConstraintGadget p N M) : List (Expression N M (F p)) :=
   match x with
-    | GenericConstraint.mk polys _ subConstraints => polys ++ (foldl [] subConstraints)
+    | ⟨polys, _, subConstraints⟩ => polys ++ (foldl [] subConstraints)
 where
-  foldl : List (Expression N M (F p)) → List (GenericConstraint p N M) → List (Expression N M (F p))
+  foldl : List (Expression N M (F p)) → List (ConstraintGadget p N M) → List (Expression N M (F p))
     | arr, [] => arr
     | arr, (t :: ts) => foldl (arr ++ fullConstraintSet t) ts
 
 -- compute the full set of lookup arguments that are implied by this constraint
 @[simp]
-def fullLookupSet {N : ℕ+} {M : ℕ} {p : ℕ} [Fact p.Prime] (x : GenericConstraint p N M) : List (LookupArgument p N M) :=
+def fullLookupSet {N : ℕ+} {M : ℕ} {p : ℕ} [Fact p.Prime] (x : ConstraintGadget p N M) : List (LookupArgument p N M) :=
   match x with
-    | GenericConstraint.mk _ lookups subConstraints => lookups ++ (foldl [] subConstraints)
+    | ⟨_, lookups, subConstraints⟩ => lookups ++ (foldl [] subConstraints)
 where
-  foldl : List (LookupArgument p N M) → List (GenericConstraint p N M) → List (LookupArgument p N M)
+  foldl : List (LookupArgument p N M) → List (ConstraintGadget p N M) → List (LookupArgument p N M)
     | arr, [] => arr
     | arr, (t :: ts) => foldl (arr ++ fullLookupSet t) ts
 
@@ -62,14 +62,14 @@ def forallList {α : Type} (v : List α) (p : α -> Prop) : Prop :=
 -/
 class Constraint (N : ℕ+) (M : ℕ) (p : ℕ) [Fact p.Prime] :=
     -- the constraints
-    (circuit : GenericConstraint p N M)
+    (circuit : ConstraintGadget p N M)
 
     -- specification
-    (spec : InputsOfLength N (F p) M -> Prop)
+    (spec : TraceOfLength N M (F p) -> Prop)
 
     -- equivalence theorem
     (equiv :
-      (∀ X : InputsOfLength N (F p) M,
+      (∀ X : TraceOfLength N M (F p),
         (forallList (fullLookupSet circuit) (fun lookup => lookup.prop X))
         -> (
           (forallList (fullConstraintSet circuit) (fun constraint => X.eval constraint = 0))

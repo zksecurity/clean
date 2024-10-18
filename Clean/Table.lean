@@ -3,46 +3,74 @@ import Clean.GenericConstraint
 import Mathlib.Tactic
 import Mathlib.Algebra.Field.Basic
 import Mathlib.Data.ZMod.Basic
-import Clean.Gadgets.Addition8
 
 section Table
 variable (N : ℕ+) (M : ℕ) (p : ℕ) [Fact p.Prime]
 
 
-def forAllRowsOfTrace : InputsOfLength N (F p) M -> (Row N (F p) -> Prop) -> Prop :=
-  fun trace prop => forAllRowsOfTraceAux trace.val prop
+def forAllRowsOfTrace (trace : TraceOfLength N M (F p)) (prop : Row N (F p) -> Prop) : Prop :=
+  inner trace.val prop
   where
-  forAllRowsOfTraceAux : Inputs N (F p) -> (Row N (F p) -> Prop) -> Prop
-    | Inputs.empty, _ => true
-    | (Inputs.cons row rest), prop => prop row ∧ forAllRowsOfTraceAux rest prop
+  inner : Trace N (F p) -> (Row N (F p) -> Prop) -> Prop
+    | <+>, _ => true
+    | rest +> row, prop => prop row ∧ inner rest prop
 
-
-def TableConstraint := InputsOfLength N (F p) M -> List (Expression N M (F p))
-
-def everyRowConstraint (c : Row N (F p) -> GenericConstraint p N M) : TableConstraint N M p :=
-  fun trace => everyRowConstraintAux c trace.val
+def forAllRowsOfTraceWithIndex (trace : TraceOfLength N M (F p)) (prop : Row N (F p) -> ℕ -> Prop) : Prop :=
+  inner trace.val prop
   where
-  everyRowConstraintAux (c : Row N (F p) -> GenericConstraint p N M) : Inputs N (F p) -> List (Expression N M (F p))
-  | Inputs.empty => []
-  | (Inputs.cons row rest) => fullConstraintSet (c row) ++ everyRowConstraintAux c rest
+  inner : Trace N (F p) -> (Row N (F p) -> ℕ -> Prop) -> Prop
+    | <+>, _ => true
+    | rest +> row, prop => (prop row rest.len) ∧ inner rest prop
 
-def TableLookup := InputsOfLength N (F p) M -> List (LookupArgument p N M)
 
-def everyRowLookup (c : Row N (F p) -> LookupArgument p N M) : TableLookup N M p :=
-  fun trace => everyRowLookupAux c trace.val
+def GenericTableConstraint := TraceOfLength N M (F p) -> List (Expression N M (F p))
+
+def RowConstraint := Row N (F p) -> ConstraintGadget p N M
+def TwoRowsConstraint := Row N (F p) -> Row N (F p) -> ConstraintGadget p N M
+
+def applyBoundary (n : ℕ) (c : RowConstraint N M p) : GenericTableConstraint N M p :=
+  fun trace => inner c trace.val
   where
-  everyRowLookupAux (c : Row N (F p) -> LookupArgument p N M) : Inputs N (F p) -> List (LookupArgument p N M)
-  | Inputs.empty => []
-  | (Inputs.cons row rest) => [(c row)] ++ everyRowLookupAux c rest
+  inner (c : RowConstraint N M p) : Trace N (F p) -> List (Expression N M (F p))
+  | <+> => []
+  | rest +> row => if rest.len = n then fullConstraintSet (c row) else inner c rest
 
-def RowLookup := ZMod M -> LookupArgument p N M
+def applyEveryRowSingleRow (c : RowConstraint N M p) : GenericTableConstraint N M p :=
+  fun trace => inner c trace.val
+  where
+  inner (c : RowConstraint N M p) : Trace N (F p) -> List (Expression N M (F p))
+  | <+> => []
+  | rest +> row => fullConstraintSet (c row) ++ inner c rest
 
+def applyEveryRowTwoRows (c : TwoRowsConstraint N M p) [Fact (M ≥ 2)] : GenericTableConstraint N M p :=
+  fun trace => inner c trace.val
+  where
+  -- TODO: make inner type safe by removing the empty and one line cases, proving to the
+  -- type checker that if M >= 2 then those cases are not needed
+  inner (c : TwoRowsConstraint N M p) : Trace N (F p) -> List (Expression N M (F p))
+  -- empty trace
+  | <+> => []
+  -- single line trace: do not apply constraint
+  | <+> +> _ => []
+  -- at least two lines: apply constraint to every row
+  | rest +> curr +> next => fullConstraintSet (c curr next) ++ inner c (rest +> curr)
 
-inductive TableLookupStructures where
-  | everyRow : (Row N (F p) -> LookupArgument p N M) -> TableLookupStructures
+def GenericTableLookup := TraceOfLength N M (F p) -> List (LookupArgument p N M)
 
-inductive TableConstraintStructures where
-  | everyRow : (Row N (F p) -> GenericConstraint p N M) -> TableConstraintStructures
+def lookupEveryRow (c : Row N (F p) -> LookupArgument p N M) : GenericTableLookup N M p :=
+  fun trace => inner c trace.val
+  where
+  inner (c : Row N (F p) -> LookupArgument p N M) : Trace N (F p) -> List (LookupArgument p N M)
+  | <+> => []
+  | rest +> row => [(c row)] ++ inner c rest
+
+inductive TableLookup where
+  | everyRow : (Row N (F p) -> LookupArgument p N M) -> TableLookup
+
+inductive TableConstraint where
+  | boundary : ℕ -> (RowConstraint N M p) -> TableConstraint
+  | everyRowSingleRow : (RowConstraint N M p) -> TableConstraint
+  | everyRowTwoRows : (Fact (M ≥ 2)) -> (TwoRowsConstraint N M p) -> TableConstraint
 
 /--
   A Table is a structure that represents a table of size N x M.
@@ -54,90 +82,28 @@ inductive TableConstraintStructures where
   the spec is satisfied if and only if all constraints are satisfied.
 -/
 structure Table where
-  constraints : List (TableConstraintStructures N M p)
-  lookups : List (TableLookupStructures N M p)
-  spec : InputsOfLength N (F p) M -> Prop
+  constraints : List (TableConstraint N M p)
+  lookups : List (TableLookup N M p)
+  spec : TraceOfLength N M (F p) -> Prop
   equiv :
-    ∀ trace : InputsOfLength N (F p) M,
+    ∀ trace : TraceOfLength N M (F p),
     (forallList lookups (fun c => match c with
-      | TableLookupStructures.everyRow lookup =>
-        forallList ((everyRowLookup N M p lookup) trace) (λ c => c.prop trace))
+      | TableLookup.everyRow lookup =>
+        forallList ((lookupEveryRow N M p lookup) trace) (λ c => c.prop trace))
     )
     ->
     (
       (forallList constraints (fun c => match c with
-        | TableConstraintStructures.everyRow c
-          => forallList ((everyRowConstraint N M p c) trace) (fun constraint => trace.eval constraint = 0))
+        | TableConstraint.boundary idx c
+            => forallList ((applyBoundary N M p idx c) trace) (fun constraint => trace.eval constraint = 0)
+        | TableConstraint.everyRowSingleRow c
+            => forallList ((applyEveryRowSingleRow N M p c) trace) (fun constraint => trace.eval constraint = 0)
+        | TableConstraint.everyRowTwoRows _ c
+            => forallList ((applyEveryRowTwoRows N M p c) trace) (fun constraint => trace.eval constraint = 0))
       )
       ↔
       spec trace
     )
-
-
--- quick and dirty PoC
-open Expression
-
-variable [Fact (p > 512)]
-def additionTable : Table 4 M p := {
-  constraints := [
-     TableConstraintStructures.everyRow
-      (λ row => Addition8.circuit 4 M (const (row 0)) (const (row 1)) (const (row 2)) (const (row 3)))
-  ],
-
-  lookups := [
-    TableLookupStructures.everyRow (λ row => ByteLookup.lookup 4 M (const (row 0))),
-    TableLookupStructures.everyRow (λ row => ByteLookup.lookup 4 M (const (row 1))),
-    TableLookupStructures.everyRow (λ row => ByteLookup.lookup 4 M (const (row 2))),
-  ],
-
-
-  spec := fun trace => forAllRowsOfTrace 4 M p trace (λ row =>
-    let x := (trace.eval (const (row 0))).val
-    let y := (trace.eval (const (row 1))).val
-    let out := (trace.eval (const (row 2))).val
-    let carry := (trace.eval (const (row 3))).val
-    out = (x + y) % 256 ∧ carry = (x + y) / 256),
-
-  equiv := (by
-    intros trace
-    simp [InputsOfLength.eval, ByteLookup.lookup, Addition8.circuit]
-    simp [everyRowConstraint, everyRowLookup,everyRowLookup.everyRowLookupAux, forAllRowsOfTrace, forallList]
-    set trace' := trace.val
-    induction trace' with
-    | empty => {
-      simp [forAllRowsOfTrace.forAllRowsOfTraceAux]
-    }
-    | cons row rest ih => {
-      simp
-      simp [forallList] at ih
-      intros byte_x ih_byte_x byte_y ih_byte_y byte_out ih_byte_out
-      have ih' := ih ih_byte_x ih_byte_y ih_byte_out
-      simp [forAllRowsOfTrace.forAllRowsOfTraceAux]
-      simp [fullConstraintSet.foldl]
-      rw [ih']
-      have thm := Addition8.equiv 4 M (const (row 0)) (const (row 1)) (const (row 2)) (const (row 3)) trace
-      simp [ByteLookup.lookup, InputsOfLength.eval, Addition8.spec] at thm
-      have thm_specialized := thm byte_x byte_y byte_out
-
-      constructor
-      · intro h3
-        constructor
-        · simp [InputsOfLength.eval] at h3
-          have thm_h := And.intro h3.left h3.right.left
-          rw [thm_specialized] at thm_h
-          assumption
-        · exact h3.right.right
-      · intro h3
-        rw [← and_assoc]
-        constructor
-        · simp [InputsOfLength.eval]
-          have thm_h := h3.left
-          rw [←thm_specialized] at thm_h
-          exact thm_h
-        · exact h3.right
-    }
-  )
-}
 
 
 end Table
