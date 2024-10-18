@@ -11,7 +11,7 @@ import Clean.Table
 
 section FibonacciTable
 open Expression
-variable (p : ℕ) [Fact p.Prime] [Fact (p > 512)]
+variable (p : ℕ) [Fact p.Prime] [p_large_enough: Fact (p > 512)]
 variable (M : ℕ) [M_large_enough: Fact (M ≥ 2)]
 
 /-
@@ -56,32 +56,48 @@ def fibonacciTable : Table 3 M p := {
 
   spec := fun trace => forAllRowsOfTraceWithIndex 3 M p trace
     (λ row index => (trace.eval (fib_i row)).val = fib8 index ∧
-      (trace.eval (fib_i row)).val = fib8 (index + 1)),
+      (trace.eval (fib_succ row)).val = fib8 (index + 1)),
 
   equiv := (by
     intros trace
     simp [TraceOfLength.eval, ByteLookup.lookup, Addition8.circuit, Equality.circuit, applyBoundary]
     simp [applyEveryRowSingleRow, applyEveryRowTwoRows, lookupEveryRow, forAllRowsOfTraceWithIndex, forallList]
     set trace' := trace.val
-    induction trace' with
-    | empty => {
-      simp [lookupEveryRow.inner, forAllRowsOfTraceWithIndex.inner]
-    }
-    | cons rest' first_row ih => {
-      induction rest' with
-      | empty => {
-        simp [lookupEveryRow.inner, forAllRowsOfTraceWithIndex.inner, Trace.len, fib8]
-        simp [TraceOfLength.eval]
-        intros byte_succ
-        intros boundary
-        constructor
-        · sorry
-        · sorry
-      }
-      | cons rest row ih => {
-        sorry
-      }
-    }
+
+    induction' trace' using Trace.everyRowTwoRowsInduction with first_row curr next rest ih1 ih2
+    -- empty trace
+    · simp [forAllRowsOfTraceWithIndex.inner, fib8]
+
+    -- trace with only one row
+    · simp [forAllRowsOfTraceWithIndex.inner, fib8, TraceOfLength.eval]
+      intro _
+      have thm := Equality.equiv 3 M (const (first_row 1)) (const 1) trace
+      simp [ByteLookup.lookup, TraceOfLength.eval, Equality.spec] at thm
+      intro h
+      rw [thm]
+
+      have val_one_is_one := FieldUtils.val_lt_p 1 (Nat.lt_trans (by norm_num) p_large_enough.elim)
+      simp at val_one_is_one
+      rw [←val_one_is_one]
+      constructor
+      · intro h; rw [h];
+      · intro h; apply_fun ZMod.val; rw [h]; apply ZMod.val_injective
+
+    -- inductive case: trace with at least two rows
+    -- ih1 is the induction hypothesis for the previous row, and
+    -- ih2 is the induction hypothesis for two rows above
+    · simp
+      simp at ih1
+      simp at ih2
+      intro lookup_next lookup_curr lookup_rest
+      have ih1 := ih1 lookup_rest
+      have ih2 := ih2 lookup_curr lookup_rest
+      simp [forAllRowsOfTraceWithIndex.inner, applyBoundary.inner, applyEveryRowTwoRows.inner, fib8, TraceOfLength.eval, fullConstraintSet.foldl]
+      simp [forAllRowsOfTraceWithIndex.inner, applyBoundary.inner, applyEveryRowTwoRows.inner, fib8, TraceOfLength.eval, fullConstraintSet.foldl] at ih1
+      simp [forAllRowsOfTraceWithIndex.inner, applyBoundary.inner, applyEveryRowTwoRows.inner, fib8, TraceOfLength.eval, fullConstraintSet.foldl] at ih2
+
+      sorry
+
   )
 }
 

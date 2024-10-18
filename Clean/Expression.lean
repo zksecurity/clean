@@ -46,6 +46,17 @@ def Trace.len {N : ℕ+} {F : Type} : Trace N F -> ℕ
   | <+> => 0
   | rest +> _ => Nat.succ rest.len
 
+def Trace.everyRowTwoRowsInduction {M : ℕ+} {F : Type} {P : Trace M F → Sort*}
+    (zero : P (<+>))
+    (one : ∀ row : Row M F, P (empty +> row))
+    (more : ∀ curr next : Row M F, ∀ rest : Trace M F, P (rest) -> P (rest +> curr) → P (rest +> curr +> next))
+    : ∀ trace, P trace
+  | <+> => zero
+  | <+> +> first => one first
+  | rest +> curr +> _ => more _ _ _
+    (everyRowTwoRowsInduction zero one more (rest))
+    (everyRowTwoRowsInduction zero one more (rest +> curr))
+
 /--
   A trace of length M is a trace with exactly M rows.
 -/
