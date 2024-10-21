@@ -38,19 +38,20 @@ def additionTable : Table 4 M p := {
   equiv := (by
     intros trace
     simp [TraceOfLength.eval, ByteLookup.lookup, Addition8.circuit]
-    simp [applyEveryRowSingleRow, lookupEveryRow,lookupEveryRow.inner, forAllRowsOfTrace, forallList]
+    simp [fullTableConstraintSet, lookupEveryRow,lookupEveryRow.inner, forAllRowsOfTrace, forallList]
     set trace' := trace.val
     induction trace' with
     | empty => {
-      simp [forAllRowsOfTrace.inner]
+      simp [forAllRowsOfTrace.inner, fullTableConstraintSet.foldl]
     }
     | cons rest row ih => {
       simp
       simp [forallList] at ih
       intros byte_x ih_byte_x byte_y ih_byte_y byte_out ih_byte_out
       have ih' := ih ih_byte_x ih_byte_y ih_byte_out
-      simp [forAllRowsOfTrace.inner]
-      simp [fullConstraintSet.foldl]
+      simp [fullConstraintSet.foldl, forAllRowsOfTrace.inner, fullTableConstraintSet.foldl]
+      simp [forallList, fullTableConstraintSet.foldl] at ih'
+
       rw [ih']
       have thm := Addition8.equiv 4 M (const (row 0)) (const (row 1)) (const (row 2)) (const (row 3)) trace
       simp [ByteLookup.lookup, TraceOfLength.eval, Addition8.spec] at thm

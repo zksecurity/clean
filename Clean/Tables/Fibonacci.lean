@@ -60,16 +60,16 @@ def fibonacciTable : Table 3 M p := {
 
   equiv := (by
     intros trace
-    simp [TraceOfLength.eval, ByteLookup.lookup, Addition8.circuit, Equality.circuit, applyBoundary]
-    simp [applyEveryRowSingleRow, applyEveryRowTwoRows, lookupEveryRow, forAllRowsOfTraceWithIndex, forallList]
+    simp [TraceOfLength.eval, ByteLookup.lookup]
+    simp [fullTableConstraintSet, lookupEveryRow, forAllRowsOfTraceWithIndex, forallList]
     set trace' := trace.val
 
     induction' trace' using Trace.everyRowTwoRowsInduction with first_row curr next rest ih1 ih2
     -- empty trace
-    · simp [forAllRowsOfTraceWithIndex.inner, fib8]
+    · simp [forAllRowsOfTraceWithIndex.inner, fullTableConstraintSet.foldl, fib8]
 
     -- trace with only one row
-    · simp [forAllRowsOfTraceWithIndex.inner, fib8, TraceOfLength.eval]
+    · simp [forAllRowsOfTraceWithIndex.inner, fib8, TraceOfLength.eval, fullTableConstraintSet.foldl]
       intro _
       have thm := Equality.equiv 3 M (const (first_row 1)) (const 1) trace
       simp [ByteLookup.lookup, TraceOfLength.eval, Equality.spec] at thm
@@ -92,12 +92,57 @@ def fibonacciTable : Table 3 M p := {
       intro lookup_next lookup_curr lookup_rest
       have ih1 := ih1 lookup_rest
       have ih2 := ih2 lookup_curr lookup_rest
-      simp [forAllRowsOfTraceWithIndex.inner, applyBoundary.inner, applyEveryRowTwoRows.inner, fib8, TraceOfLength.eval, fullConstraintSet.foldl]
-      simp [forAllRowsOfTraceWithIndex.inner, applyBoundary.inner, applyEveryRowTwoRows.inner, fib8, TraceOfLength.eval, fullConstraintSet.foldl] at ih1
-      simp [forAllRowsOfTraceWithIndex.inner, applyBoundary.inner, applyEveryRowTwoRows.inner, fib8, TraceOfLength.eval, fullConstraintSet.foldl] at ih2
+      simp [fib8, TraceOfLength.eval, forallList, fullTableConstraintSet.foldl, fullConstraintSet.foldl]
+      simp [forAllRowsOfTraceWithIndex.inner, fullTableConstraintSet.foldl, fib8, TraceOfLength.eval] at ih1
+      simp [forAllRowsOfTraceWithIndex.inner, fullTableConstraintSet.foldl, fib8, TraceOfLength.eval] at ih2
+      --the following is a very nice rewrite of the inductive hypothesis
+      rw [ih2]
+      simp [forAllRowsOfTraceWithIndex.inner]
 
-      sorry
+      constructor
+      -- soundness direction
+      · simp
+        intros c1 c2 c3 fib_curr fib_next ih_rest
+        have eq_relation := Equality.equiv 3 M (const (curr 1)) (const (next 0)) trace
+        simp [TraceOfLength.eval, Equality.spec] at eq_relation
+        rw [eq_relation] at c3
 
+        constructor
+        · constructor
+          · -- here we need to prove the first part of the spec, which is ZMod.val (next 0) = fib8 (rest +> curr).len
+            -- this is trivial because of the Eq constraint
+            rw [c3] at fib_next
+            simp [Trace.len]
+            assumption
+          · -- here we need to prove the second part of the spec, which is ZMod.val (next 1) = fib8 (rest +> curr +> next).len
+
+            -- first of all, we show that since there is the Eq constraint, the byte lookup argument
+            -- is applied also to the first column
+            have lookup_first : ZMod.val (curr 0) < 256 := by
+              have lookup_curr_first := lookup_curr
+              rw [c3] at lookup_curr_first
+              -- TODO: somehow, but should be doable :)
+              sorry
+
+            -- the addition constraints imply an add8 between the trace elements
+            have add_relation := Addition8.equiv 3 M (const (curr 0)) (const (curr 1)) (const (next 1)) (const (curr 2)) trace
+            simp [ByteLookup.lookup, TraceOfLength.eval, Addition8.spec] at add_relation
+            have add_relation := add_relation lookup_first lookup_curr lookup_next
+
+            have add_input := And.intro c1 c2
+            rw [add_relation] at add_input
+            have add_h := add_input.left
+
+            -- and now we reason about fib
+            simp [fib8]
+            rw [fib_curr] at add_h
+            rw [fib_next] at add_h
+            assumption
+        · constructor; constructor
+          repeat {assumption}
+
+      -- TODO: completeness
+      · sorry
   )
 }
 
