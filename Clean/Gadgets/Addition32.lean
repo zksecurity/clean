@@ -27,8 +27,8 @@ def AdditionConstraint (N M : ℕ+)
     [
       x₀ + y₀ - z₀ - c₀ * const (256),
       s₁ + c₀ - z₁ - c₁ * const (256),
-      x₂ + y₂ + c₁ - z₂ - c₂ * const (256),
-      x₃ + y₃ + c₂ - z₃ - c₃ * const (256)
+      s₂ + c₁ - z₂ - c₂ * const (256),
+      s₂ + c₂ - z₃ - c₃ * const (256)
     ]
 
     [
