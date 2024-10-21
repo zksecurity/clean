@@ -41,46 +41,23 @@ def RowConstraint := Row N (F p) -> ConstraintGadget p N M
 def TwoRowsConstraint := Row N (F p) -> Row N (F p) -> ConstraintGadget p N M
 
 /--
-  Apply a row constraint to some specific row of the table
+  Apply a row constraint to a single row
 -/
-def applyBoundary (n : ℕ) (c : RowConstraint N M p) : GenericTableConstraint N M p :=
-  fun trace => inner c trace.val
-  where
-  inner (c : RowConstraint N M p) : Trace N (F p) -> List (Expression N M (F p))
-  | <+> => []
-  | rest +> row => if rest.len = n then fullConstraintSet (c row) else inner c rest
+def applySingleRowConstraint (c : RowConstraint N M p) (row : Row N (F p)) : List (Expression N M (F p)) :=
+  fullConstraintSet (c row)
 
 /--
-  Apply a single row constraint to every row of the table
+  Apply a two rows constraint to two adjacent rows
 -/
-def applyEveryRowSingleRow (c : RowConstraint N M p) : GenericTableConstraint N M p :=
-  fun trace => inner c trace.val
-  where
-  inner (c : RowConstraint N M p) : Trace N (F p) -> List (Expression N M (F p))
-  | <+> => []
-  | rest +> row => fullConstraintSet (c row) ++ inner c rest
-
-/--
-  Apply a two rows constraint to every row of the table
--/
-def applyEveryRowTwoRows (c : TwoRowsConstraint N M p) [Fact (M ≥ 2)] : GenericTableConstraint N M p :=
-  fun trace => inner c trace.val
-  where
-  -- TODO: make inner type safe by removing the empty and one line cases, proving to the
-  -- type checker that if M >= 2 then those cases are not needed
-  inner (c : TwoRowsConstraint N M p) : Trace N (F p) -> List (Expression N M (F p))
-  -- empty trace
-  | <+> => []
-  -- single line trace: do not apply constraint
-  | <+> +> _ => []
-  -- at least two lines: apply constraint to every row
-  | rest +> curr +> next => fullConstraintSet (c curr next) ++ inner c (rest +> curr)
+def applyTwoRowConstraint [Fact (M ≥ 2)] (c : TwoRowsConstraint N M p) (curr : Row N (F p)) (next : Row N (F p)) : List (Expression N M (F p)) :=
+  fullConstraintSet (c curr next)
 
 /--
   Table constraint definition. A table constraint can be either
   - a boundary constraint, which applies to a specific row in the table
   - a "every row single row" constraint, which is defined over a row and applies to every row
-  - a "every row two rows" constraint, which is defined over two adjacent rows and applies to every row
+  - a "every row two rows" constraint, which is defined over two adjacent rows and applies to every row,
+    except the last one
 -/
 inductive TableConstraint where
   | boundary : ℕ -> (RowConstraint N M p) -> TableConstraint
@@ -103,6 +80,54 @@ def lookupEveryRow (c : Row N (F p) -> LookupArgument p N M) : GenericTableLooku
 inductive TableLookup where
   | everyRow : (Row N (F p) -> LookupArgument p N M) -> TableLookup
 
+/--
+  Compute the full set of constraints that are implied by a table constraint, so that they are applied
+  with an inductive structure to every row in the table.
+-/
+def fullTableConstraintSet (constraints : List (TableConstraint N M p)) (trace: TraceOfLength N M (F p)) : List (Expression N M (F p)) :=
+  foldl constraints trace.val constraints
+  where
+  /--
+  The foldl function applies the constraints to the trace inductively on the trace
+
+  We want to write something like:
+  for row in trace:
+    for constraint in constraints:
+      apply constraint to row
+  in this exact order, so that the inductive structure is at the top-level.
+
+  This construction is quite involved but is simplifies a lot inductive proofs.
+  We do double induction: first on the trace, then on the constraints: we apply every constraint to the current row, and
+  then recurse on the rest of the trace.
+  `cs` is the list of constraints that we have to apply and it is never changed during the induction
+  `cs_iterator` is walked inductively for every row.
+  Once the `cs_iterator` is empty, we start again on the rest of the trace with the initial constraints `cs` -/
+  foldl (cs : List (TableConstraint N M p)) : Trace N (F p) -> (cs_iterator: List (TableConstraint N M p)) -> List (Expression N M (F p))
+
+    -- if the trace has at least two rows and the constraint is a "every row two rows" constraint, we apply the constraint
+    | trace +> curr +> next, (TableConstraint.everyRowTwoRows _ c)::rest =>
+        (applyTwoRowConstraint N M p c curr next) ++ foldl cs (trace +> curr +> next) rest
+
+    -- if the trace has at least one row and the constraint is a boundary constraint, we apply the constraint if the
+    -- index is the same as the length of the remaining trace
+    | trace +> row, (TableConstraint.boundary idx c)::rest =>
+        (if trace.len = idx then applySingleRowConstraint N M p c row else []) ++ foldl cs (trace +> row) rest
+
+    -- if the trace has at least one row and the constraint is a "every row single row" constraint, we apply the constraint
+    | trace +> row, (TableConstraint.everyRowSingleRow c)::rest =>
+        applySingleRowConstraint N M p c row ++ foldl cs (trace +> row) rest
+
+    -- if the trace has not enough rows for the "every row two rows" constraint, we skip the constraint
+    -- TODO: this is fine if the trace length M is >= 2, but we should check this somehow
+    | trace, (TableConstraint.everyRowTwoRows _ _)::rest =>
+        foldl cs trace rest
+
+    -- if the cs_iterator is empty, we start again with the initial constraints on the next row
+    | trace +> _, [] =>
+        foldl cs trace cs
+
+    -- if the trace is empty, we are done
+    | <+>, _ => []
 
 /--
   A Table is a structure that represents a table of size N x M.
@@ -125,14 +150,7 @@ structure Table where
     )
     ->
     (
-      (forallList constraints (fun c => match c with
-        | TableConstraint.boundary idx c
-            => forallList ((applyBoundary N M p idx c) trace) (fun constraint => trace.eval constraint = 0)
-        | TableConstraint.everyRowSingleRow c
-            => forallList ((applyEveryRowSingleRow N M p c) trace) (fun constraint => trace.eval constraint = 0)
-        | TableConstraint.everyRowTwoRows _ c
-            => forallList ((applyEveryRowTwoRows N M p c) trace) (fun constraint => trace.eval constraint = 0))
-      )
+      (forallList (fullTableConstraintSet N M p constraints trace) (fun constraint => trace.eval constraint = 0))
       ↔
       spec trace
     )
