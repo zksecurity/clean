@@ -16,26 +16,27 @@ open Expression
 variable {p : ℕ} [p_is_prime: Fact p.Prime] [p_large_enough: Fact (p > 512)]
 instance : CommRing (F p) := ZMod.commRing p
 
-def circuit (N M : ℕ+) (x y out carry : Expression N M (F p)) : GenericConstraint p N M :=
-  GenericConstraint.mk
+def circuit (N : ℕ+) (M : ℕ) (x y out carry : Expression N M (F p)) : ConstraintGadget p N M :=
+  ⟨
     [
       x + y - out - carry * (const 256)
-    ]
+    ],
     [
       ByteLookup.lookup N M x,
       ByteLookup.lookup N M y,
       ByteLookup.lookup N M out,
-    ]
+    ],
     [
       Boolean.circuit N M carry
     ]
+  ⟩
 
-def spec (N M : ℕ+) (x y out carry: Expression N M (F p)) : Inputs N M (F p) -> Prop :=
-  (fun env =>
-      have x := x.eval env;
-      have y := y.eval env;
-      have out := out.eval env;
-      have carry := carry.eval env;
+def spec (N : ℕ+) (M : ℕ) (x y out carry: Expression N M (F p)) : TraceOfLength N M (F p) -> Prop :=
+  (fun trace =>
+      have x := trace.eval x;
+      have y := trace.eval y;
+      have out := trace.eval out;
+      have carry := trace.eval carry;
       (out.val = (x.val + y.val) % 256) ∧ carry.val = (x.val + y.val) / 256)
 
 
@@ -93,11 +94,11 @@ theorem soundness_one_carry (x y out : F p):
     · simp; exact Nat.add_lt_add hx hy
 
 
-theorem equiv (N M : ℕ+) (x y out carry: Expression N M (F p)) :
+theorem equiv (N : ℕ+) (M : ℕ) (x y out carry: Expression N M (F p)) :
   (∀ X,
     (forallList (fullLookupSet (circuit N M x y out carry)) (fun lookup => lookup.prop X))
     -> (
-      (forallList (fullConstraintSet (circuit N M x y out carry)) (fun constraint => constraint.eval X = 0))
+      (forallList (fullConstraintSet (circuit N M x y out carry)) (fun constraint => X.eval constraint = 0))
       ↔
       spec N M x y out carry X
     )
@@ -109,11 +110,11 @@ theorem equiv (N M : ℕ+) (x y out carry: Expression N M (F p)) :
   simp [forallList, Boolean.spec] at equivBoolean
   rw [equivBoolean, spec]
 
-  simp [eval]
-  set x := x.eval X
-  set y := y.eval X
-  set out := out.eval X
-  set carry := carry.eval X
+  simp [TraceOfLength.eval]
+  set x := X.eval x
+  set y := X.eval y
+  set out := X.eval out
+  set carry := X.eval carry
 
   intro hx_byte
   intro hy_byte
