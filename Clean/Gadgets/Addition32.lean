@@ -40,7 +40,7 @@ def AdditionConstraint (N M : ℕ+)
       Addition8.circuit N M s₁ c₀ z₁ c₁,
       Addition8.circuit N M x₂ y₂ s₂ cs₂,
       Addition8.circuit N M s₂ c₁ z₂ c₂,
-      Addition8.circuit N M x₂ y₂ s₃ cs₃,
+      Addition8.circuit N M x₃ y₃ s₃ cs₃,
       Addition8.circuit N M s₃ c₂ z₃ c₃,
 
       Xor.circuit N M c₁ c₀ cs₁,
