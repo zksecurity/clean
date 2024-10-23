@@ -14,6 +14,8 @@ variable {p : ℕ} [p_is_prime: Fact p.Prime] [p_large_enough: Fact (p > 512)]
 -- Addition of elements from GL(2 ^ 32) as
 -- x = x₀ + x₁ * 2 ^ 8 + x₂ * 2 ^ 16 + x₃ * 2 ^ 24 : ∀ i xi < 2 ^ 8
 
+variable {s₁ s₂ s₃ cs₁ cs₂ cs₃ : Expression (F p)}
+
 
 def lookup (N M : ℕ+) (x : Expression (F p)) (n : ℕ+) : LookupArgument p N M :=
   {
@@ -21,33 +23,29 @@ def lookup (N M : ℕ+) (x : Expression (F p)) (n : ℕ+) : LookupArgument p N M
   }
 
 def AdditionConstraint (N M : ℕ+)
-  (x₀ x₁ x₂ x₃ y₀ y₁ y₂ y₃ z₀ z₁ z₂ z₃ c₀ c₁ c₂ c₃ s₁ s₂ s₃ cs₁ cs₂ cs₃ : Expression (F p))
+  (x₀ x₁ x₂ x₃ y₀ y₁ y₂ y₃ z₀ z₁ z₂ z₃ c₀ c₁ c₂ c₃ : Expression (F p))
 : GenericConstraint p N M :=
   GenericConstraint.mk
     [
-      x₀ + y₀ - z₀ - c₀ * const (256),
-      s₁ + c₀ - z₁ - c₁ * const (256),
-      s₂ + c₁ - z₂ - c₂ * const (256),
-      s₂ + c₂ - z₃ - c₃ * const (256)
+
     ]
 
     [
-      lookup N M x₀ 256, lookup N M x₁ 256, lookup N M x₂ 256, lookup N M x₃ 256,
-      lookup N M y₀ 256, lookup N M y₁ 256, lookup N M y₂ 256, lookup N M y₃ 256,
-      lookup N M z₀ 256, lookup N M z₁ 256, lookup N M z₂ 256, lookup N M z₃ 256,
+
     ]
 
     [
+      Addition8.circuit N M x₀ y₀ z₀ c₀,
       Addition8.circuit N M x₁ y₁ s₁ cs₁,
+      Addition8.circuit N M s₁ c₀ z₁ c₁,
       Addition8.circuit N M x₂ y₂ s₂ cs₂,
-      Addition8.circuit N M x₁ y₁ s₁ cs₁,
+      Addition8.circuit N M s₂ c₁ z₂ c₂,
+      Addition8.circuit N M x₂ y₂ s₃ cs₃,
+      Addition8.circuit N M s₃ c₂ z₃ c₃,
+
       Xor.circuit N M c₁ c₀ cs₁,
       Xor.circuit N M c₂ c₁ cs₂,
       Xor.circuit N M c₃ c₂ cs₂,
-      Boolean.circuit N M c₀,
-      Boolean.circuit N M c₁,
-      Boolean.circuit N M c₂,
-      Boolean.circuit N M c₃
     ]
 
 def spec (N M : ℕ+) (x₀ x₁ x₂ x₃ y₀ y₁ y₂ y₃ z₀ z₁ z₂ z₃ c₀ c₁ c₂ c₃ : Expression (F p))
