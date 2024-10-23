@@ -29,7 +29,6 @@ inductive ConstraintGadget (N: ℕ+) (M: ℕ) where
     (subConstraints : List (ConstraintGadget N M))
 
 -- compute the full set of constraints that are implied by this constraint
-@[simp]
 def fullConstraintSet {N: ℕ+} {M : ℕ} {p : ℕ} [Fact p.Prime] (x : ConstraintGadget p N M) : List (Expression N M (F p)) :=
   match x with
     | ⟨polys, _, subConstraints⟩ => polys ++ (foldl [] subConstraints)

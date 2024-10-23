@@ -15,15 +15,18 @@ variable (p : ℕ) [Fact p.Prime] [p_large_enough: Fact (p > 512)]
 variable (M : ℕ) [M_large_enough: Fact (M ≥ 2)]
 
 /-
-Table layout:
+Fibonacci table layout:
 
 
-fib_i    | fib_succ | carry
+A        | B        | carry
+--------------------------------
 0        | 1        | c_0
 1        | 1        | c_1
 ...
 fib(i)   | fib(i+1) | c_i
 fib(i+1) | fib(i+2) | c_i+1
+...
+
 -/
 
 def fib8 : ℕ -> ℕ
@@ -31,32 +34,32 @@ def fib8 : ℕ -> ℕ
   | 1 => 1
   | (n+2) => (fib8 n + fib8 (n+1)) % 256
 
-def fib_i {p M : ℕ} (row : Row 3 (F p)) : Expression 3 M (F p) := (const (row 0))
-def fib_succ {p M : ℕ} (row : Row 3 (F p)) : Expression 3 M (F p) := (const (row 1))
+def A {p M : ℕ} (row : Row 3 (F p)) : Expression 3 M (F p) := (const (row 0))
+def B {p M : ℕ} (row : Row 3 (F p)) : Expression 3 M (F p) := (const (row 1))
 def carry {p M : ℕ} (row : Row 3 (F p)) : Expression 3 M (F p) := (const (row 2))
 
 def fibonacciTable : Table 3 M p := {
   constraints := [
-    TableConstraint.boundary 0 (λ row => Equality.circuit 3 M (fib_i row) (const 0)),
-    TableConstraint.boundary 0 (λ row => Equality.circuit 3 M (fib_succ row) (const 1)),
+    TableConstraint.boundary 0 (λ row => Equality.circuit 3 M (A row) 0),
+    TableConstraint.boundary 0 (λ row => Equality.circuit 3 M (B row) 1),
     TableConstraint.everyRowTwoRows M_large_enough (λ curr => λ next =>
-      Addition8.circuit 3 M (fib_i curr) (fib_succ curr) (fib_succ next) (carry curr)
+      Addition8.circuit 3 M (A curr) (B curr) (B next) (carry curr)
     ),
     TableConstraint.everyRowTwoRows M_large_enough (λ curr => λ next =>
-      Equality.circuit 3 M (fib_succ curr) (fib_i next)
+      Equality.circuit 3 M (B curr) (A next)
     )
   ],
 
   lookups := [
     -- the lookup is performed only on the second column, by induction we can show
     -- that the first column is a byte as well for all rows
-    TableLookup.everyRow (λ row => ByteLookup.lookup 3 M (fib_succ row)),
+    TableLookup.everyRow (λ row => ByteLookup.lookup 3 M (B row)),
   ],
 
 
   spec := fun trace => forAllRowsOfTraceWithIndex 3 M p trace
-    (λ row index => (trace.eval (fib_i row)).val = fib8 index ∧
-      (trace.eval (fib_succ row)).val = fib8 (index + 1)),
+    (λ row index => (trace.eval (A row)).val = fib8 index ∧
+      (trace.eval (B row)).val = fib8 (index + 1)),
 
   equiv := (by
     intros trace
@@ -64,14 +67,14 @@ def fibonacciTable : Table 3 M p := {
     simp [fullTableConstraintSet, lookupEveryRow, forAllRowsOfTraceWithIndex, forallList]
     set trace' := trace.val
 
-    induction' trace' using Trace.everyRowTwoRowsInduction with first_row curr next rest ih1 ih2
+    induction' trace' using Trace.everyRowTwoRowsInduction with first_row curr next rest _ ih2
     -- empty trace
     · simp [forAllRowsOfTraceWithIndex.inner, fullTableConstraintSet.foldl, fib8]
 
     -- trace with only one row
     · simp [forAllRowsOfTraceWithIndex.inner, fib8, TraceOfLength.eval, fullTableConstraintSet.foldl]
       intro _
-      have thm := Equality.equiv 3 M (const (first_row 1)) (const 1) trace
+      have thm := Equality.equiv 3 M (B first_row) 1 trace
       simp [ByteLookup.lookup, TraceOfLength.eval, Equality.spec] at thm
       intro h
       rw [thm]
@@ -84,29 +87,27 @@ def fibonacciTable : Table 3 M p := {
       · intro h; apply_fun ZMod.val; rw [h]; apply ZMod.val_injective
 
     -- inductive case: trace with at least two rows
-    -- ih1 is the induction hypothesis for the previous row, and
-    -- ih2 is the induction hypothesis for two rows above
+    -- we only need ih2 which is the induction hypothesis for two rows above (i.e., for rest)
     · simp
-      simp at ih1
       simp at ih2
       intro lookup_next lookup_curr lookup_rest
-      have ih1 := ih1 lookup_rest
-      have ih2 := ih2 lookup_curr lookup_rest
-      simp [fib8, TraceOfLength.eval, forallList, fullTableConstraintSet.foldl, fullConstraintSet.foldl]
-      simp [forAllRowsOfTraceWithIndex.inner, fullTableConstraintSet.foldl, fib8, TraceOfLength.eval] at ih1
-      simp [forAllRowsOfTraceWithIndex.inner, fullTableConstraintSet.foldl, fib8, TraceOfLength.eval] at ih2
-      --the following is a very nice rewrite of the inductive hypothesis
+      specialize ih2 lookup_curr lookup_rest
+      simp [fullTableConstraintSet.foldl, fib8, TraceOfLength.eval]
+      simp [forallList, fullConstraintSet, fullConstraintSet.foldl]
+
+      simp [forAllRowsOfTraceWithIndex.inner, fullTableConstraintSet.foldl,
+        fib8, TraceOfLength.eval] at ih2
       rw [ih2]
       simp [forAllRowsOfTraceWithIndex.inner]
+
+      have eq_relation := Equality.equiv 3 M (B curr) (A next) trace
+      simp [TraceOfLength.eval, Equality.spec] at eq_relation
+      rw [eq_relation]
 
       constructor
       -- soundness direction
       · simp
         intros c1 c2 c3 fib_curr fib_next ih_rest
-        have eq_relation := Equality.equiv 3 M (const (curr 1)) (const (next 0)) trace
-        simp [TraceOfLength.eval, Equality.spec] at eq_relation
-        rw [eq_relation] at c3
-
         constructor
         · constructor
           · -- here we need to prove the first part of the spec, which is ZMod.val (next 0) = fib8 (rest +> curr).len
@@ -139,7 +140,7 @@ def fibonacciTable : Table 3 M p := {
                 simp [TraceOfLength.eval] at constraints
 
                 have eq_with_prev := constraints.right.right.left
-                have eq_relation := Equality.equiv 3 M (const (prev 1)) (const (curr 0)) trace
+                have eq_relation := Equality.equiv 3 M (B prev) (A curr) trace
                 simp [TraceOfLength.eval, Equality.spec] at eq_relation
                 rw [eq_relation] at eq_with_prev
                 rw [←eq_with_prev]
@@ -150,7 +151,7 @@ def fibonacciTable : Table 3 M p := {
               }
 
             -- the addition constraints imply an add8 between the trace elements
-            have add_relation := Addition8.equiv 3 M (const (curr 0)) (const (curr 1)) (const (next 1)) (const (curr 2)) trace
+            have add_relation := Addition8.equiv 3 M (A curr) (B curr) (B next) (carry curr) trace
             simp [ByteLookup.lookup, TraceOfLength.eval, Addition8.spec] at add_relation
             have add_relation := add_relation lookup_first lookup_curr lookup_next
 
