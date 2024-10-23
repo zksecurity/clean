@@ -121,8 +121,33 @@ def fibonacciTable : Table 3 M p := {
             have lookup_first : ZMod.val (curr 0) < 256 := by
               have lookup_curr_first := lookup_curr
               rw [c3] at lookup_curr_first
-              -- TODO: somehow, but should be doable :)
-              sorry
+              cases rest with
+              | empty =>{
+                -- empty, this is true by boundary
+                simp at ih2
+                have constraints := ih2.mpr (And.intro (And.intro fib_curr fib_next) ih_rest)
+                simp [TraceOfLength.eval] at constraints
+                have boundary1 := constraints.left
+                rw [boundary1]
+                simp
+              }
+              | cons rest prev => {
+                -- at least one row below, this is true by the inductive hypothesis
+                -- and the Eq constraint
+                simp [forAllRowsOfTraceWithIndex.inner, fullTableConstraintSet.foldl, fib8, TraceOfLength.eval] at ih2
+                have constraints := ih2.mpr (And.intro (And.intro fib_curr fib_next) ih_rest)
+                simp [TraceOfLength.eval] at constraints
+
+                have eq_with_prev := constraints.right.right.left
+                have eq_relation := Equality.equiv 3 M (const (prev 1)) (const (curr 0)) trace
+                simp [TraceOfLength.eval, Equality.spec] at eq_relation
+                rw [eq_relation] at eq_with_prev
+                rw [←eq_with_prev]
+
+                simp at lookup_rest
+                have lookup_prev := lookup_rest.left
+                assumption
+              }
 
             -- the addition constraints imply an add8 between the trace elements
             have add_relation := Addition8.equiv 3 M (const (curr 0)) (const (curr 1)) (const (next 1)) (const (curr 2)) trace
