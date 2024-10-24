@@ -133,7 +133,7 @@ def fibonacciTable : Table 3 M p := {
                 simp
               }
               | cons rest prev => {
-                -- at least one row below, this is true by the inductive hypothesis
+                -- at least one row above, this is true by the inductive hypothesis
                 -- and the Eq constraint
                 simp [forAllRowsOfTraceWithIndex.inner, fullTableConstraintSet.foldl, fib8, TraceOfLength.eval] at ih2
                 have constraints := ih2.mpr (And.intro (And.intro fib_curr fib_next) ih_rest)
