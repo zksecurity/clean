@@ -17,6 +17,15 @@ def forAllRowsOfTrace (trace : TraceOfLength N M (F p)) (prop : Row N (F p) -> P
     | <+>, _ => true
     | rest +> row, prop => prop row ∧ inner rest prop
 
+def forAllRowsOfTraceExceptLast (trace : TraceOfLength N M (F p)) (prop : Row N (F p) -> Prop) : Prop :=
+  inner trace.val prop
+  where
+  inner : Trace N (F p) -> (Row N (F p) -> Prop) -> Prop
+    | <+>, _ => true
+    | <+> +> _, _ => true
+    | rest +> curr +> _, prop => prop curr ∧ inner (rest +> curr) prop
+
+
 /--
   Apply a proposition, which could be dependent on the row index, to every row of the trace
 -/

@@ -34,6 +34,12 @@ def fib8 : ℕ -> ℕ
   | 1 => 1
   | (n+2) => (fib8 n + fib8 (n+1)) % 256
 
+
+lemma fib8_always_byte (n : ℕ) : fib8 n < 256 := by
+  induction' n using Nat.twoStepInduction
+  repeat {simp [fib8]}; apply Nat.mod_lt; simp
+
+
 def A {p M : ℕ} (row : Row 3 (F p)) : Expression 3 M (F p) := (const (row 0))
 def B {p M : ℕ} (row : Row 3 (F p)) : Expression 3 M (F p) := (const (row 1))
 def carry {p M : ℕ} (row : Row 3 (F p)) : Expression 3 M (F p) := (const (row 2))
@@ -57,26 +63,33 @@ def fibonacciTable : Table 3 M p := {
   ],
 
 
-  spec := fun trace => forAllRowsOfTraceWithIndex 3 M p trace
-    (λ row index => (trace.eval (A row)).val = fib8 index ∧
-      (trace.eval (B row)).val = fib8 (index + 1)),
+  spec := fun trace => (forAllRowsOfTraceWithIndex 3 M p trace
+    (λ row index =>
+      (trace.eval (A row)).val = fib8 index ∧
+      (trace.eval (B row)).val = fib8 (index + 1))) ∧
+    forAllRowsOfTraceExceptLast 3 M p trace (λ row =>
+      (trace.eval (carry row)).val = ((trace.eval (A row)).val + (trace.eval (B row)).val) / 256),
 
   equiv := (by
     intros trace
     simp [TraceOfLength.eval, ByteLookup.lookup]
-    simp [fullTableConstraintSet, lookupEveryRow, forAllRowsOfTraceWithIndex, forallList]
+    simp [fullTableConstraintSet, lookupEveryRow, forAllRowsOfTraceWithIndex, forAllRowsOfTraceExceptLast, forallList]
     set trace' := trace.val
 
     induction' trace' using Trace.everyRowTwoRowsInduction with first_row curr next rest _ ih2
     -- empty trace
-    · simp [forAllRowsOfTraceWithIndex.inner, fullTableConstraintSet.foldl, fib8]
+    · simp [forAllRowsOfTraceWithIndex.inner,
+        forAllRowsOfTraceExceptLast.inner,
+        fullTableConstraintSet.foldl,
+        fib8]
 
     -- trace with only one row
-    · simp [forAllRowsOfTraceWithIndex.inner, fib8, TraceOfLength.eval, fullTableConstraintSet.foldl]
+    · simp [forAllRowsOfTraceWithIndex.inner, forAllRowsOfTraceExceptLast.inner,
+        fib8, TraceOfLength.eval, fullTableConstraintSet.foldl]
       intro _
       have thm := Equality.equiv 3 M (B first_row) 1 trace
       simp [ByteLookup.lookup, TraceOfLength.eval, Equality.spec] at thm
-      intro h
+      intro _
       rw [thm]
 
       have val_one_is_one := FieldUtils.val_lt_p 1 (Nat.lt_trans (by norm_num) p_large_enough.elim)
@@ -98,7 +111,7 @@ def fibonacciTable : Table 3 M p := {
       simp [forAllRowsOfTraceWithIndex.inner, fullTableConstraintSet.foldl,
         fib8, TraceOfLength.eval] at ih2
       rw [ih2]
-      simp [forAllRowsOfTraceWithIndex.inner]
+      simp [forAllRowsOfTraceWithIndex.inner, forAllRowsOfTraceExceptLast.inner]
 
       have eq_relation := Equality.equiv 3 M (B curr) (A next) trace
       simp [TraceOfLength.eval, Equality.spec] at eq_relation
@@ -107,68 +120,99 @@ def fibonacciTable : Table 3 M p := {
       constructor
       -- soundness direction
       · simp
-        intros c1 c2 c3 fib_curr fib_next ih_rest
-        constructor
-        · constructor
-          · -- here we need to prove the first part of the spec, which is ZMod.val (next 0) = fib8 (rest +> curr).len
-            -- this is trivial because of the Eq constraint
-            rw [c3] at fib_next
-            simp [Trace.len]
+        intros c1 c2 c3 fib_curr fib_next ih_rest carry_correct
+
+        -- first of all, we show that since there is the Eq constraint, the byte lookup argument
+        -- is applied also to the first column
+        have lookup_first : ZMod.val (curr 0) < 256 := by
+          have lookup_curr_first := lookup_curr
+          rw [c3] at lookup_curr_first
+          cases rest with
+          | empty =>{
+            -- empty, this is true by boundary
+            simp [fullConstraintSet.foldl, forAllRowsOfTraceExceptLast.inner, forAllRowsOfTraceWithIndex.inner] at ih2
+            have constraints := ih2.mpr (And.intro fib_curr fib_next)
+            simp [TraceOfLength.eval] at constraints
+            have boundary1 := constraints.left
+            rw [boundary1]
+            simp
+          }
+          | cons rest prev => {
+            -- at least one row above, this is true by the inductive hypothesis
+            -- and the Eq constraint
+            simp [forAllRowsOfTraceWithIndex.inner, fullTableConstraintSet.foldl,
+              fib8, TraceOfLength.eval] at ih2
+            simp [forAllRowsOfTraceWithIndex.inner] at ih_rest
+            have constraints := ih2.mpr
+            simp [ih_rest, fib_curr, fib_next, fib8, carry_correct] at constraints
+
+            have eq_with_prev := constraints.right.right.left
+            have eq_relation := Equality.equiv 3 M (B prev) (A curr) trace
+            simp [TraceOfLength.eval, Equality.spec] at eq_relation
+            rw [eq_relation] at eq_with_prev
+            rw [←eq_with_prev]
+
+            simp at lookup_rest
+            have lookup_prev := lookup_rest.left
             assumption
-          · -- here we need to prove the second part of the spec, which is ZMod.val (next 1) = fib8 (rest +> curr +> next).len
+          }
 
-            -- first of all, we show that since there is the Eq constraint, the byte lookup argument
-            -- is applied also to the first column
-            have lookup_first : ZMod.val (curr 0) < 256 := by
-              have lookup_curr_first := lookup_curr
-              rw [c3] at lookup_curr_first
-              cases rest with
-              | empty =>{
-                -- empty, this is true by boundary
-                simp at ih2
-                have constraints := ih2.mpr (And.intro (And.intro fib_curr fib_next) ih_rest)
-                simp [TraceOfLength.eval] at constraints
-                have boundary1 := constraints.left
-                rw [boundary1]
-                simp
-              }
-              | cons rest prev => {
-                -- at least one row above, this is true by the inductive hypothesis
-                -- and the Eq constraint
-                simp [forAllRowsOfTraceWithIndex.inner, fullTableConstraintSet.foldl, fib8, TraceOfLength.eval] at ih2
-                have constraints := ih2.mpr (And.intro (And.intro fib_curr fib_next) ih_rest)
-                simp [TraceOfLength.eval] at constraints
+        -- here we show the first part of the spec, which is ZMod.val (next 0) = fib8 (rest +> curr).len
+        -- this is trivial because of the Eq constraint
+        have spec1 : ZMod.val (next 0) = fib8 (rest +> curr).len := by
+          rw [c3] at fib_next
+          simp [Trace.len]
+          assumption
 
-                have eq_with_prev := constraints.right.right.left
-                have eq_relation := Equality.equiv 3 M (B prev) (A curr) trace
-                simp [TraceOfLength.eval, Equality.spec] at eq_relation
-                rw [eq_relation] at eq_with_prev
-                rw [←eq_with_prev]
+        -- here we show the second part of the spec, which is ZMod.val (next 1) = fib8 (rest +> curr +> next).len
+        -- the addition constraints imply an add8 between the trace elements
+        -- also we show that the carry is correct
+        have spec2 : ZMod.val (next 1) = fib8 (rest +> curr +> next).len
+          ∧ ZMod.val (curr 2) = (ZMod.val (curr 0) + ZMod.val (curr 1)) / 256
+          := by
+          have add_relation := Addition8.equiv 3 M (A curr) (B curr) (B next) (carry curr) trace
+          simp [ByteLookup.lookup, TraceOfLength.eval, Addition8.spec] at add_relation
+          specialize add_relation lookup_first lookup_curr lookup_next
 
-                simp at lookup_rest
-                have lookup_prev := lookup_rest.left
-                assumption
-              }
+          -- and now we reason about fib
+          have add_input := And.intro c1 c2
+          rw [add_relation] at add_input
+          simp [add_input.right]
+          have add_h := add_input.left
+          simp [fib8]
+          rw [fib_curr] at add_h
+          rw [fib_next] at add_h
+          assumption
 
-            -- the addition constraints imply an add8 between the trace elements
-            have add_relation := Addition8.equiv 3 M (A curr) (B curr) (B next) (carry curr) trace
-            simp [ByteLookup.lookup, TraceOfLength.eval, Addition8.spec] at add_relation
-            have add_relation := add_relation lookup_first lookup_curr lookup_next
+        -- putting all together
+        simp [spec1, spec2, fib8, ih_rest, carry_correct, fib_next, fib_curr]
 
-            have add_input := And.intro c1 c2
-            rw [add_relation] at add_input
-            have add_h := add_input.left
+      -- completeness
+      · intro h
+        have ⟨⟨⟨fib_next0, fib_next1⟩, ⟨⟨fib_curr0, fib_curr1⟩, fib_ih⟩⟩, ⟨carry_curr, carry_ih⟩⟩ := h
+        simp [carry_ih, fib_ih, fib_curr0, fib_curr1]
 
-            -- and now we reason about fib
-            simp [fib8]
-            rw [fib_curr] at add_h
-            rw [fib_next] at add_h
-            assumption
-        · constructor; constructor
-          repeat {assumption}
+        -- addition
+        have lookup_first := fib8_always_byte rest.len
+        rw [←fib_curr0] at lookup_first
 
-      -- TODO: completeness
-      · sorry
+        have add_relation := Addition8.equiv 3 M (A curr) (B curr) (B next) (carry curr) trace
+        simp [ByteLookup.lookup, TraceOfLength.eval, Addition8.spec] at add_relation
+        specialize add_relation lookup_first lookup_curr lookup_next
+
+        nth_rewrite 1 [fib_curr0] at add_relation
+        nth_rewrite 1 [fib_curr1] at add_relation
+        nth_rewrite 1 [fib_next1] at add_relation
+        simp [fib8, carry_curr] at add_relation
+        simp [add_relation]
+
+        -- Equality
+        have h := fib_next0
+        simp [Trace.len] at h
+        rw [←fib_curr1] at h
+        apply_fun ZMod.val
+        · exact Eq.symm h
+        · apply ZMod.val_injective
   )
 }
 
