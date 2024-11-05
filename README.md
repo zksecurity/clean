@@ -2,7 +2,7 @@
 
 This repository is currently a playground for the team at zkSecurity to explore and master Lean.
 
-Its intended to become our monorepo for Lean utilities, libraries, etc.
+It's intended to become our monorepo for Lean utilities, libraries, etc.
 
 ## Using the repo
 
@@ -14,6 +14,6 @@ Clone this repo, and test that everything works by building:
 lake build
 ```
 
-After that, we recommend open the repo in VSCode to get immediate inline feedback from the compiler while writing theorems.
+After that, we recommend to open the repo in VSCode to get immediate inline feedback from the compiler while writing theorems.
 
 Make sure to install the `lean4` extension for VSCode!
