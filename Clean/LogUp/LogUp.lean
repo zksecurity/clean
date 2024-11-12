@@ -85,11 +85,47 @@ lemma prod_eq_algebramap (N : ℕ) (S : (Fin N) -> (F p)) :
     algebraMap (F p)[X] (RatFunc (F p)) (∏ i : Fin N, (X - C (S i))) := by
   simp
 
-theorem derivative_zero_constant (g : (F p)[X]) (h_deg : g.natDegree < p) :
-    derivative g = 0 → ∃ a : F p, g = C a := by
+lemma natCast_minus_one_eq_zero (a : ℕ) (a_l : a > 0) (a_h : a < p) : (↑(a - 1) : F p) + 1 ≠ 0 := by
+  apply_fun ZMod.val
+  have lem2 : ZMod.val (1 : F p) = 1 := by apply ZMod.val_one
+  rw [ZMod.val_add, lem2]
+  simp
+  rw [ZMod.val_natCast]
+  have lem3 : (a - 1) < a := by apply Nat.sub_one_lt_of_lt; exact a_l
+  have lem4 : (a - 1) < p := by linarith
+  rw [Nat.mod_eq_of_lt lem4]
+  have lem5 : (a - 1) + 1 < p := by linarith
+  rw [Nat.mod_eq_of_lt lem5]
+  simp
+
+/--
+  If the derivative of a polynomial is zero, and the degree is less than the field characteristic,
+  then the polynomial is a constant
+-/
+theorem derivative_zero_constant (g : (F p)[X]) (h_p : p > 1) (h_deg : g.natDegree < p) :
+    derivative g = 0 → g = C (g.coeff 0) := by
   intro h
-  simp [derivative, Polynomial.sum] at h
-  sorry
+  have coeff_mul_idx_is_zero (a : ℕ) : g.coeff (a + 1) * (a + 1) = 0 := by
+    rw [←coeff_derivative g a, h]; simp
+
+  have coeffs_are_zero (a : ℕ) : a > 0 -> a < p -> g.coeff a = 0 := by
+    intro a_l a_h
+    have lem := coeff_mul_idx_is_zero (a - 1)
+    simp [Nat.sub_one_add_one_eq_of_pos a_l] at lem
+    have lem2 := natCast_minus_one_eq_zero p a a_l a_h
+    apply Or.resolve_right lem
+    simp [lem2]
+
+  have deg_lt_p: g.natDegree ≤ p-1 := by rw [←Nat.le_sub_one_iff_lt (by linarith)] at h_deg; assumption;
+  rw [Polynomial.ext_iff_natDegree_le deg_lt_p (by rw [Polynomial.natDegree_C]; linarith)]
+  intro i h_i
+  rcases Nat.eq_zero_or_pos i with h_zero | h_pos
+  · rw [h_zero]; simp
+  · have h_i_lt_p: i < p := by rw [Nat.le_sub_one_iff_lt (by linarith)] at h_i; assumption
+    simp [coeffs_are_zero i h_pos h_i_lt_p]
+    rw [Polynomial.coeff_C]
+    have index_h : i ≠ 0 := by linarith;
+    simp [index_h]
 
 /--
   Definition of derivative for rational functions
