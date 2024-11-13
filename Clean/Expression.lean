@@ -65,7 +65,7 @@ def TraceOfLength (N : ℕ+) (M : ℕ) (F : Type)  : Type := { env : Trace N F /
 
 def Trace.getLe {N: ℕ+} {F : Type} : (env : Trace N F) -> (row : Fin env.len) -> (j : Fin N) -> F
   | _ +> currRow, ⟨0, _⟩, columnIndex => currRow columnIndex
-  | rest +> _, ⟨Nat.succ i, h⟩, j => getLe rest ⟨i, Nat.le_of_succ_le_succ h⟩ j
+  | rest +> _, ⟨i + 1, h⟩, j => getLe rest ⟨i, Nat.le_of_succ_le_succ h⟩ j
 
 def TraceOfLength.get {N: ℕ+} {M : ℕ} {F : Type} : (env : TraceOfLength N M F) -> (i : Fin M) -> (j : Fin N) -> F
   | ⟨env, h⟩, i, j => env.getLe (by rw [←h] at i; exact i) j
