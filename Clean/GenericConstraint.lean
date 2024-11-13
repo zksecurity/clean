@@ -53,6 +53,9 @@ def forallList {α : Type} (v : List α) (p : α -> Prop) : Prop :=
   | [] => true
   | (x::xs) => p x ∧ forallList xs p
 
+def constraints_hold {p M: ℕ} {N: ℕ+} [Fact p.Prime] (circuit : ConstraintGadget p N M) (trace : TraceOfLength N M (F p)) :=
+  (forallList (fullConstraintSet circuit) (fun constraint => trace.eval constraint = 0))
+
 /-
   A Constraint is a typeclass that packages the definition of the circuit together with its higher
   level specification.
