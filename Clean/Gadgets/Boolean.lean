@@ -1,6 +1,5 @@
 import Clean.GenericConstraint
 import Clean.Expression
-import Clean.Gadgets.ByteLookup
 import Mathlib.Algebra.Field.Basic
 import Mathlib.Data.ZMod.Basic
 
@@ -12,20 +11,21 @@ namespace Boolean
 open Expression
 variable {p : ℕ} [Fact p.Prime]
 
-def circuit (N M : ℕ+) (x : Expression (F p)) : GenericConstraint p N M :=
-  GenericConstraint.mk
-    [x * (x - 1)]
-    []
-    []
+def circuit (N : ℕ+) (M : ℕ) (x : Expression N M (F p)) : ConstraintGadget p N M :=
+  ⟨
+    [x * (x - 1)],
+    [],
+    [],
+  ⟩
 
-def spec (N M : ℕ+) (x: Expression (F p)) : Inputs N M (F p) -> Prop :=
-  fun env => x.eval env = 0 ∨ x.eval env = 1
+def spec (N : ℕ+) (M : ℕ) (x: Expression N M (F p)) : TraceOfLength N M (F p) -> Prop :=
+  fun env => env.eval x = 0 ∨ env.eval x = 1
 
-theorem equiv (N M : ℕ+) (x: Expression (F p)) :
+theorem equiv (N : ℕ+) (M : ℕ) (x: Expression N M (F p)) :
   (∀ X,
     (forallList (fullLookupSet (circuit N M x)) (fun lookup => lookup.prop X))
     -> (
-      (forallList (fullConstraintSet (circuit N M x)) (fun constraint => constraint.eval X = 0))
+      (forallList (fullConstraintSet (circuit N M x)) (fun constraint => X.eval constraint = 0))
       ↔
       spec N M x X
     )
@@ -35,22 +35,22 @@ theorem equiv (N M : ℕ+) (x: Expression (F p)) :
   intro X
   constructor
   · intro h
-    simp [Expression.eval] at h
+    simp [TraceOfLength.eval] at h
     simp [spec]
     cases h with
     | inl h => left; exact h
     | inr h => right; calc
-          eval X x = eval X x + (-1) + 1 := by ring
+          X.eval x = X.eval x + (-1) + 1 := by ring
           _ = 1 := by simp [h]
   · intro h
-    simp [Expression.eval]
+    simp [TraceOfLength.eval]
     simp [spec] at h
     cases h with
     | inl h => left ; exact h
     | inr h => right ; simp [h]
 
 
-instance BooleanConstraint (N M : ℕ+) (x : Expression (F p)) : Constraint N M p :=
+instance BooleanConstraint (N : ℕ+) (M : ℕ) (x : Expression N M (F p)) : Constraint N M p :=
 {
   circuit := circuit N M x,
   spec := spec N M x,
