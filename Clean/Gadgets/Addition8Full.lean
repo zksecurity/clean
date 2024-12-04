@@ -34,11 +34,11 @@ def circuit (N : ℕ+) (M : ℕ) (x y out carry_in carry_out : Expression N M (F
 
 def spec (N : ℕ+) (M : ℕ) (x y out carry_in carry_out: Expression N M (F p)) : TraceOfLength N M (F p) -> Prop :=
   (fun trace =>
-      have x := trace.eval x;
-      have y := trace.eval y;
-      have out := trace.eval out;
-      have carry_in := trace.eval carry_in;
-      have carry_out := trace.eval carry_out;
+      have x := trace.eval x
+      have y := trace.eval y
+      have out := trace.eval out
+      have carry_in := trace.eval carry_in
+      have carry_out := trace.eval carry_out
 
       -- the output is correct
       (out.val = (carry_in.val + x.val + y.val) % 256)
@@ -189,7 +189,49 @@ theorem equiv (N : ℕ+) (M : ℕ) (x y out carry_in carry_out: Expression N M (
       apply_fun ZMod.val
       · exact Eq.symm h1
       · apply ZMod.val_injective
-    · sorry
+    · have ⟨h1, ⟨h2, h3⟩⟩ := h
+      have carry_in_bound := FieldUtils.boolean_le_2 carry_in h3
+      have sum_bound := FieldUtils.byte_sum_le_bound x y hx_byte hy_byte
+      have sum_le_511 : carry_in.val + (x + y).val ≤ 511 := by
+        apply Nat.le_sub_one_of_lt at sum_bound
+        apply Nat.le_sub_one_of_lt at carry_in_bound
+        simp at sum_bound
+        simp at carry_in_bound
+        apply Nat.add_le_add carry_in_bound sum_bound
+      rw [FieldUtils.byte_sum_do_not_wrap x y hx_byte hy_byte, ←add_assoc] at sum_le_511
+
+      have sum_le_512 := Nat.add_lt_add hx_byte hy_byte
+      simp at sum_le_512
+      have div_one : (carry_in.val + x.val + y.val) / 256 = 1 := by
+        apply Nat.div_eq_of_lt_le
+        · simp; exact sum_ge_256
+        · simp; apply Nat.lt_add_one_of_le; assumption
+      have val_one_is_one := FieldUtils.val_lt_p 1 (Nat.lt_trans (by norm_num) p_large_enough.elim)
+      rw [div_one] at h2
+      rw [← val_one_is_one] at h2
+      simp at h2
+      have carry_one : carry_out = 1 := (Function.Injective.eq_iff (ZMod.val_injective p)).mp h2
+      rw [carry_one]
+      simp [h3]
+      rw [←sub_eq_add_neg, sub_eq_zero, add_eq_of_eq_sub]
+      rw [sub_eq_add_neg, add_comm 256, ← sub_eq_iff_eq_add]
+      simp
+      have modulo_definition_div := Nat.mod_add_div (carry_in.val + x.val + y.val) 256
+      rw [div_one] at modulo_definition_div
+      simp at modulo_definition_div
+      apply_fun ZMod.val
+
+      · have not_wrap := FieldUtils.byte_sum_and_bit_do_not_wrap x y carry_in hx_byte hy_byte carry_in_bound
+        rw [←not_wrap] at h1
+        rw [←not_wrap] at sum_ge_256
+        have val_256_is_256 := FieldUtils.val_lt_p 256 (Nat.lt_trans (by norm_num) p_large_enough.elim)
+        rw [←val_256_is_256] at sum_ge_256
+        have sub_256_val : ((carry_in + x + y) - 256).val = (carry_in + x+y).val - (256 : F p).val :=
+          ZMod.val_sub sum_ge_256
+        simp at val_256_is_256
+        rw [sub_256_val, not_wrap, val_256_is_256, ← modulo_definition_div, ←not_wrap]
+        simp; exact (Eq.symm h1)
+      · apply ZMod.val_injective
 
 
 instance (N M : ℕ+) (x y out carry_in carry_out : Expression N M (F p)) : Constraint N M p :=
