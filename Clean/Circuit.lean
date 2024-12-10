@@ -93,8 +93,8 @@ inductive RowIndex
 deriving Repr
 
 structure Cell (F : Type) where
-  column: ℕ -- index of the column
   row: RowIndex
+  column: ℕ -- index of the column
 deriving Repr
 
 structure Context (F : Type) where
@@ -150,17 +150,17 @@ end Operation
 
 def Stateful (F : Type) (α : Type) := Context F → (Context F × List (Operation F)) × α
 
-def Stateful.run (circuit: Stateful F Unit) (offset: ℕ := 0) : Context F × List (Operation F) :=
-  let ctx := Context.empty offset
-  let ((ctx, ops), _ ) := circuit ctx
-  (ctx, ops)
-
 instance : Monad (Stateful F) where
   pure a ctx := ((ctx, []), a)
   bind f g ctx :=
     let ((ctx', ops), a) := f ctx
-    let ((ctx'', ops'), a) := g a ctx'
-    ((ctx'', ops ++ ops'), a)
+    let ((ctx'', ops'), b) := g a ctx'
+    ((ctx'', ops ++ ops'), b)
+
+def Stateful.run (circuit: Stateful F Unit) (offset: ℕ := 0) : Context F × List (Operation F) :=
+  let ctx := Context.empty offset
+  let ((ctx, ops), _ ) := circuit ctx
+  (ctx, ops)
 
 def as_stateful (f: Context F → Operation F × α) : Stateful F α := fun ctx  =>
   let (op, a) := f ctx
@@ -170,10 +170,14 @@ def as_stateful (f: Context F → Operation F × α) : Stateful F α := fun ctx 
 -- operations we can do in a circuit
 
 -- create a new variable
-def witness (compute : Unit → F) := as_stateful (fun ctx =>
-  let var := ⟨ ctx.offset, compute ⟩
-  (Operation.Witness compute, Expression.var var)
+def witnessVar (compute : Unit → F) := as_stateful (fun ctx =>
+  let var: Variable F := ⟨ ctx.offset, compute ⟩
+  (Operation.Witness compute, var)
 )
+
+def witness (compute : Unit → F) := do
+  let var ← witnessVar compute
+  return Expression.var var
 
 -- add a constraint
 def assert_zero (e: Expression F) := as_stateful (
@@ -200,13 +204,42 @@ def subcircuit (circuit: Stateful F α) := as_stateful (
 
 -- TODO derived operations: assert(lhs == rhs), <== (witness + assert)
 
+def to_var [CommRing F] (x: Expression F) : Stateful F (Variable F) :=
+  match x with
+  | Expression.var v => pure v
+  | x => do
+    let x' ← witnessVar (fun _ => x.eval)
+    assert_zero (x - (Expression.var x'))
+    return x'
+
+structure AssignedCell (F : Type) where
+  cell: Cell F
+  var: Variable F
+
+structure InputCell (F : Type) where
+  cell: { cell: Cell F // cell.row = RowIndex.Current }
+  var: Variable F
+
+def InputCell.set_next [CommRing F] (c: InputCell F) (v: Expression F) := do
+  let v' ← to_var v
+  assign_cell { c.cell.val with row := RowIndex.Next } v'
+
+def create_input (value: F) (column: ℕ) : Stateful F (InputCell F) := do
+  let var ← witnessVar (fun _ => value)
+  let cell: Cell F := ⟨ RowIndex.Current, column ⟩
+  let input: InputCell F := ⟨ ⟨ cell, rfl ⟩, var ⟩
+  return input
+
+instance : Coe (InputCell F) (Variable F) where
+  coe x := x.var
+
 end Circuit
 
 section -- examples
 open Circuit
 open Circuit.Expression (const)
 
-variable (offset: ℕ) {p: ℕ} [p_prime: Fact p.Prime]
+variable (offset: ℕ) {p: ℕ}
 
 def F p := ZMod p
 
@@ -257,18 +290,20 @@ def Add8 (x y: Expression (F p)) : Stateful (F p) (Expression (F p)) := do
   return z
 
 def Main (x y : F p) : Stateful (F p) Unit := do
-  let x ← witness (fun () => x)
-  let y ← witness (fun () => y)
+  let x ← create_input x 0
+  let y ← create_input y 1
   let z ← subcircuit (Add8 x y)
-  -- assign_cell (Cell.mk 2 Row.Current) z
-
-theorem prime_1009 : Nat.Prime 1009 := by
-  set_option maxRecDepth 900 in decide
+  x.set_next y
+  y.set_next z
 
 #eval!
   let p := 1009
   let p_large_enough := Fact.mk (by norm_num : p > 512)
   let main := Main (x := (20 : F p)) (y := 30)
-  let (ctx, ops) := main.run
+  let (_, ops) := main.run
   ops
 end
+
+-- this would only be needed if we did inversion somewhere
+-- theorem prime_1009 : Nat.Prime 1009 := by
+--   set_option maxRecDepth 900 in decide
