@@ -67,31 +67,34 @@ instance : HMul F (Expression F) (Expression F) where
   hMul := fun f e => mul f e
 end Expression
 
-structure Vector (F : Type) (n: ℕ) where
-  entries: Fin n → F
-deriving Repr
+def Row (F : Type) (n: ℕ) := { l: List F // l.length = n }
+def row (l: List F) : Row F l.length := ⟨ l, rfl ⟩
+
+instance [Repr F] {n: ℕ} : Repr (Row F n) where
+  reprPrec l _ := repr l.val
 
 structure Table (F : Type) where
-  arity: ℕ
+  name: String
   length: ℕ
-  row: Fin length → Vector F arity
+  arity: ℕ
+  row: Fin length → { l: List F // l.length = arity }
 
 structure Lookup (F : Type) where
   table: Table F
-  entry: Vector (Expression F) table.arity
-  witness: Unit → Fin table.length -- index of the entry
+  entry: Row (Expression F) table.arity
+  index: Unit → Fin table.length -- index of the entry
 
 instance [Repr F] : Repr (Lookup F) where
-  reprPrec l _ := "(Lookup " ++ repr l.entry ++ ")"
+  reprPrec l _ := "(Lookup " ++ l.table.name ++ " " ++ repr l.entry ++ ")"
 
-inductive Row
+inductive RowIndex
   | Current
   | Next
 deriving Repr
 
 structure Cell (F : Type) where
   column: ℕ -- index of the column
-  row: Row
+  row: RowIndex
 deriving Repr
 
 structure Context (F : Type) where
@@ -131,10 +134,10 @@ def run (ctx: Context F) : Operation F → Context F
 
 def toString [Repr F] : (op : Operation F) → String
   | Witness _v => "Witness"
-  | Assert e => "AssertZero(" ++ reprStr e ++ ")"
-  | Lookup l => "Lookup(" ++ reprStr l ++ ")"
-  | Assign (c, v) => "Assign(" ++ reprStr c ++ ", " ++ reprStr v ++ ")"
-  | Circuit ⟨ _, ops ⟩ => "Circuit(" ++ reprStr (go ops) ++ ")"
+  | Assert e => "(Assert " ++ reprStr e ++ " == 0)"
+  | Lookup l => reprStr l
+  | Assign (c, v) => "(Assign " ++ reprStr c ++ ", " ++ reprStr v ++ ")"
+  | Circuit ⟨ _, ops ⟩ => "(Circuit " ++ reprStr (go ops) ++ ")"
 -- this helps lean recognize the structural recursion
 where go (ops : List (Operation F)) : List String :=
   match ops with
@@ -188,10 +191,10 @@ def assign_cell (c: Cell F) (v: Variable F) := as_stateful (
 )
 
 -- run a sub-circuit
-def subcircuit (c: Stateful F α) := as_stateful (
+def subcircuit (circuit: Stateful F α) := as_stateful (
   fun ctx =>
     let subctx := Context.empty ctx.offset
-    let (state, a) := c subctx
+    let (state, a) := circuit subctx
     (Operation.Circuit state, a)
 )
 
@@ -207,28 +210,45 @@ variable (offset: ℕ) {p: ℕ} [p_prime: Fact p.Prime]
 
 def F p := ZMod p
 
-
 def create (x: ℕ) (lt: x < p) : F p :=
-  match p, p_prime with
-  | 0, _ => False.elim (Nat.not_lt_zero x lt)
-  | (_n + 1), _ => ⟨ x, lt ⟩
+  match p with
+  | 0 => False.elim (Nat.not_lt_zero x lt)
+  | _ + 1 => ⟨ x, lt ⟩
 
 variable [p_large_enough: Fact (p > 512)]
 
 def mod (x: F p) (c: ℕ+) (lt: c < p) : F p :=
   create (x.val % c) (by linarith [Nat.mod_lt x.val c.pos, lt])
 
-def mod256 (x: F p) : F p :=
+def mod_256 (x: F p) : F p :=
   mod x 256 (by linarith [p_large_enough.elim])
+
+def from_byte (x: Fin 256) : F p :=
+  create x.val (by linarith [x.is_lt, p_large_enough.elim])
 
 instance : CommRing (F p) := ZMod.commRing p
 
 def Boolean (x: Expression (F p)) : Stateful (F p) Unit := do
   assert_zero (x * (x - 1))
 
+def ByteTable : Table (F p) where
+  name := "Bytes"
+  length := 256
+  arity := 1
+  row i := row [from_byte i]
+
+def byte_lookup (x: F p) := lookup {
+  table := ByteTable
+  entry := row [const x]
+  index := fun () =>
+    if h : (x.val < 256)
+    then ⟨x.val, h⟩
+    else ⟨0, by show 0 < 256; norm_num⟩
+}
+
 def Add8 (x y: Expression (F p)) : Stateful (F p) (Expression (F p)) := do
-  let z ← witness (fun () => mod256 (x + y))
-  -- lookup (_) -- TODO
+  let z ← witness (fun () => mod_256 (x + y))
+  byte_lookup z
 
   let carry ← witness (fun () => x + y - z)
   subcircuit (Boolean carry) ;
@@ -242,9 +262,11 @@ def Main (x y : F p) : Stateful (F p) Unit := do
   let z ← subcircuit (Add8 x y)
   -- assign_cell (Cell.mk 2 Row.Current) z
 
+theorem prime_1009 : Nat.Prime 1009 := by
+  set_option maxRecDepth 900 in decide
+
 #eval!
   let p := 1009
-  let p_prime := Fact.mk (by sorry : Nat.Prime p)
   let p_large_enough := Fact.mk (by norm_num : p > 512)
   let main := Main (x := (20 : F p)) (y := 30)
   let (ctx, ops) := main.run
