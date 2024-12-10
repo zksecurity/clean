@@ -157,7 +157,7 @@ instance : Monad (Stateful F) where
     let ((ctx'', ops'), b) := g a ctx'
     ((ctx'', ops ++ ops'), b)
 
-def Stateful.run (circuit: Stateful F Unit) (offset: ℕ := 0) : Context F × List (Operation F) :=
+def Stateful.run (circuit: Stateful F α) (offset: ℕ := 0) : Context F × List (Operation F) :=
   let ctx := Context.empty offset
   let ((ctx, ops), _ ) := circuit ctx
   (ctx, ops)
@@ -223,11 +223,25 @@ def InputCell.set_next [CommRing F] (c: InputCell F) (v: Expression F) := do
 def create_input (value: F) (column: ℕ) : Stateful F (InputCell F) := do
   let var ← witness_var (fun _ => value)
   let cell: Cell F := ⟨ RowIndex.Current, column ⟩
+  assign_cell cell var
   let input: InputCell F := ⟨ ⟨ cell, rfl ⟩, var ⟩
   return input
 
 instance : Coe (InputCell F) (Variable F) where
   coe x := x.var
+
+-- extract information from circuits by running them
+inductive NestedList (α : Type) :=
+  | scalar : α → NestedList α
+  | list : List (NestedList α) → NestedList α
+deriving Repr
+
+def constraints : List (Operation F) →  List (NestedList (Expression F))
+  | [] => []
+  | op :: ops => match op with
+    | Operation.Assert e => NestedList.scalar e :: constraints ops
+    | Operation.Circuit ⟨ _, ops' ⟩ => NestedList.list (constraints ops') :: constraints ops
+    | _ => constraints ops
 
 end Circuit
 
@@ -321,7 +335,7 @@ def Add8 (x y: Expression (F p)) : Stateful (F p) (Expression (F p)) := do
   let z ← witness (fun () => mod_256 (x + y))
   byte_lookup z
   let carry ← witness (fun () => floordiv (x + y) 256)
-  assert_bool carry
+  subcircuit (assert_bool carry)
 
   assert_zero (x + y - z - carry * (const 256))
   return z
@@ -335,13 +349,13 @@ def Main (x y : F p) : Stateful (F p) Unit := do
   x.set_next y
   y.set_next z
 
-#eval!
+#eval
   let p := 1009
   let p_non_zero := Fact.mk (by norm_num : p ≠ 0)
   let p_large_enough := Fact.mk (by norm_num : p > 512)
   let main := Main (x := (20 : F p)) (y := 30)
   let (_, ops) := main.run
-  ops
+  constraints ops
 end
 
 -- this would only be needed if we did inversion somewhere
