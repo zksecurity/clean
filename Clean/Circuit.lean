@@ -212,10 +212,6 @@ def to_var [CommRing F] (x: Expression F) : Stateful F (Variable F) :=
     assert_zero (x - (Expression.var x'))
     return x'
 
-structure AssignedCell (F : Type) where
-  cell: Cell F
-  var: Variable F
-
 structure InputCell (F : Type) where
   cell: { cell: Cell F // cell.row = RowIndex.Current }
   var: Variable F
