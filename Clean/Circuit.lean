@@ -2,7 +2,7 @@ import Mathlib.Algebra.Field.Basic
 import Mathlib.Data.ZMod.Basic
 
 namespace Circuit
-variable {F: Type} [CommRing F]
+variable {F: Type}
 
 structure Variable (F : Type) where
   index: ℕ
@@ -18,6 +18,8 @@ inductive Expression (F : Type) where
   | mul : Expression F -> Expression F -> Expression F
 
 namespace Expression
+variable [CommRing F]
+
 def eval : Expression F → F
   | var v => v.witness ()
   | const c => c
@@ -32,9 +34,6 @@ def toString [Repr F] : Expression F → String
 
 instance [Repr F] : Repr (Expression F) where
   reprPrec e _ := toString e
-end Expression
-
-namespace Expression
 
 -- combine expressions elegantly
 instance : Zero (Expression F) where
@@ -114,7 +113,7 @@ inductive Operation (F : Type) where
   | Assert : Expression F → Operation F
   | Lookup : Lookup F → Operation F
   | Assign : Cell F × Variable F → Operation F
-  | Circuit : (circuit: Context F → (Context F × List (Operation F)) × Unit) → Operation F
+  | Circuit : Context F × List (Operation F) → Operation F
 
 namespace Operation
 
@@ -123,30 +122,32 @@ def run (ctx: Context F) : Operation F → Context F
     let var := ⟨ ctx.offset, compute ⟩
     let offset := ctx.offset + 1
     { ctx with offset, locals := ctx.locals.push var }
-
   | Assert e => { ctx with constraints := ctx.constraints.push e }
-
   | Lookup l => { ctx with lookups := ctx.lookups.push l }
-
   | Assign (c, v) => { ctx with assignments := ctx.assignments.push (c, v) }
-
-  | Circuit c =>
-    let subctx := Context.empty ctx.offset
-    let ((subctx, _), _) := c subctx
+  | Circuit ⟨ subctx, _ops ⟩ =>
+    -- TODO probably want to import more stuff from the subcontext
     { ctx with offset := subctx.offset }
 
+def toString [Repr F] : (op : Operation F) → String
+  | Witness _v => "Witness"
+  | Assert e => "AssertZero(" ++ reprStr e ++ ")"
+  | Lookup l => "Lookup(" ++ reprStr l ++ ")"
+  | Assign (c, v) => "Assign(" ++ reprStr c ++ ", " ++ reprStr v ++ ")"
+  | Circuit ⟨ _, ops ⟩ => "Circuit(" ++ reprStr (go ops) ++ ")"
+-- this helps lean recognize the structural recursion
+where go (ops : List (Operation F)) : List String :=
+  match ops with
+  | [] => []
+  | op :: ops => op.toString :: go ops
+
 instance [Repr F] : ToString (Operation F) where
-  toString op := match op with
-    | Witness _v => "Witness"
-    | Assert e => "Assert(" ++ reprStr e ++ ")"
-    | Lookup l => "Lookup(" ++ reprStr l ++ ")"
-    | Assign (c, v) => "Assign(" ++ reprStr c ++ ", " ++ reprStr v ++ ")"
-    | Circuit _ => "Circuit"
+  toString := toString
 end Operation
 
 def Stateful (F : Type) (α : Type) := Context F → (Context F × List (Operation F)) × α
 
-def Stateful.run (circuit: Stateful F α) (offset: ℕ := 0) : Context F × List (Operation F) :=
+def Stateful.run (circuit: Stateful F Unit) (offset: ℕ := 0) : Context F × List (Operation F) :=
   let ctx := Context.empty offset
   let ((ctx, ops), _ ) := circuit ctx
   (ctx, ops)
@@ -172,7 +173,7 @@ def witness (compute : Unit → F) := as_stateful (fun ctx =>
 )
 
 -- add a constraint
-def assert (e: Expression F) := as_stateful (
+def assert_zero (e: Expression F) := as_stateful (
   fun _ => (Operation.Assert e, ())
 )
 
@@ -187,25 +188,32 @@ def assign_cell (c: Cell F) (v: Variable F) := as_stateful (
 )
 
 -- run a sub-circuit
-def subcircuit (c: Stateful F Unit) := as_stateful (
-  fun _ => (Operation.Circuit c, ())
+def subcircuit (c: Stateful F α) := as_stateful (
+  fun ctx =>
+    let subctx := Context.empty ctx.offset
+    let (state, a) := c subctx
+    (Operation.Circuit state, a)
 )
+
+-- TODO derived operations: assert(lhs == rhs), <== (witness + assert)
 
 end Circuit
 
 section -- examples
 open Circuit
+open Circuit.Expression (const)
 
 variable (offset: ℕ) {p: ℕ} [p_prime: Fact p.Prime]
 
 def F p := ZMod p
 
-variable [p_large_enough: Fact (p > 512)]
 
 def create (x: ℕ) (lt: x < p) : F p :=
   match p, p_prime with
   | 0, _ => False.elim (Nat.not_lt_zero x lt)
   | (_n + 1), _ => ⟨ x, lt ⟩
+
+variable [p_large_enough: Fact (p > 512)]
 
 def mod (x: F p) (c: ℕ+) (lt: c < p) : F p :=
   create (x.val % c) (by linarith [Nat.mod_lt x.val c.pos, lt])
@@ -215,29 +223,30 @@ def mod256 (x: F p) : F p :=
 
 instance : CommRing (F p) := ZMod.commRing p
 
-def E := Expression (F p)
-open Expression (const)
+def Boolean (x: Expression (F p)) : Stateful (F p) Unit := do
+  assert_zero (x * (x - 1))
 
-def Boolean (x: Expression (F p)) : Stateful (F p) Unit :=
-  do assert (x * (x - 1))
+def Add8 (x y: Expression (F p)) : Stateful (F p) (Expression (F p)) := do
+  let z ← witness (fun () => mod256 (x + y))
+  -- lookup (_) -- TODO
 
-def Add8 (x y: Expression (F p)) : Stateful (F p) (Expression (F p)) :=
-  do
-    let z ← witness (fun () => mod256 (x + y))
-    -- lookup (_) -- TODO
+  let carry ← witness (fun () => x + y - z)
+  subcircuit (Boolean carry) ;
 
-    let carry ← witness (fun () => x + y - z)
-    subcircuit (Boolean carry) ;
+  assert_zero (x + y - z - carry * (const 256)) ;
+  return z
 
-    assert (x + y - z - carry * (const 256)) ;
-    return z
+def Main (x y : F p) : Stateful (F p) Unit := do
+  let x ← witness (fun () => x)
+  let y ← witness (fun () => y)
+  let z ← subcircuit (Add8 x y)
+  -- assign_cell (Cell.mk 2 Row.Current) z
 
 #eval!
   let p := 1009
   let p_prime := Fact.mk (by sorry : Nat.Prime p)
   let p_large_enough := Fact.mk (by norm_num : p > 512)
-  let x: Variable (F p) := ⟨ 0, fun () => 20 ⟩
-  let y: Variable (F p) := ⟨ 1, fun () => 30 ⟩
-  let (ctx, ops) := (Add8 (p:=p) x y).run 2
+  let main := Main (x := (20 : F p)) (y := 30)
+  let (ctx, ops) := main.run
   ops
 end
