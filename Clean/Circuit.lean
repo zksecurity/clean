@@ -243,6 +243,15 @@ def constraints : List (Operation F) →  List (NestedList (Expression F))
     | Operation.Circuit ⟨ _, ops' ⟩ => NestedList.list (constraints ops') :: constraints ops
     | _ => constraints ops
 
+def constraint_holds [CommRing F] (e: Expression F) : Prop := e.eval = 0
+
+def constraints_hold [CommRing F] : List (Operation F) → Prop
+  | [] => true
+  | op :: ops => match op with
+    | Operation.Assert e => constraint_holds e ∧ constraints_hold ops
+    | Operation.Circuit ⟨ _, ops' ⟩ => constraints_hold ops' ∧ constraints_hold ops
+    | _ => constraints_hold ops
+
 end Circuit
 
 section -- examples
