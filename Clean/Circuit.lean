@@ -170,13 +170,13 @@ def as_stateful (f: Context F → Operation F × α) : Stateful F α := fun ctx 
 -- operations we can do in a circuit
 
 -- create a new variable
-def witnessVar (compute : Unit → F) := as_stateful (fun ctx =>
+def witness_var (compute : Unit → F) := as_stateful (fun ctx =>
   let var: Variable F := ⟨ ctx.offset, compute ⟩
   (Operation.Witness compute, var)
 )
 
 def witness (compute : Unit → F) := do
-  let var ← witnessVar compute
+  let var ← witness_var compute
   return Expression.var var
 
 -- add a constraint
@@ -208,7 +208,7 @@ def to_var [CommRing F] (x: Expression F) : Stateful F (Variable F) :=
   match x with
   | Expression.var v => pure v
   | x => do
-    let x' ← witnessVar (fun _ => x.eval)
+    let x' ← witness_var (fun _ => x.eval)
     assert_zero (x - (Expression.var x'))
     return x'
 
@@ -221,7 +221,7 @@ def InputCell.set_next [CommRing F] (c: InputCell F) (v: Expression F) := do
   assign_cell { c.cell.val with row := RowIndex.Next } v'
 
 def create_input (value: F) (column: ℕ) : Stateful F (InputCell F) := do
-  let var ← witnessVar (fun _ => value)
+  let var ← witness_var (fun _ => value)
   let cell: Cell F := ⟨ RowIndex.Current, column ⟩
   let input: InputCell F := ⟨ ⟨ cell, rfl ⟩, var ⟩
   return input
@@ -235,15 +235,44 @@ section -- examples
 open Circuit
 open Circuit.Expression (const)
 
-variable (offset: ℕ) {p: ℕ}
+-- general Fp helpers
+variable {p: ℕ} [p_pos: Fact (p ≠ 0)]
 
 def F p := ZMod p
+instance : CommRing (F p) := ZMod.commRing p
 
 def create (x: ℕ) (lt: x < p) : F p :=
   match p with
   | 0 => False.elim (Nat.not_lt_zero x lt)
   | _ + 1 => ⟨ x, lt ⟩
 
+def less_than_p (x: F p) : x.val < p := by
+  rcases p
+  · have : 0 ≠ 0 := p_pos.elim; tauto
+  · exact x.is_lt
+
+-- boolean type
+
+def assert_bool (x: Expression (F p)) := do
+  assert_zero (x * (x - 1))
+
+inductive Boolean (F: Type) where
+  | private mk : (Variable F) → Boolean F
+
+namespace Boolean
+def var (b: Boolean (F p)) := Expression.var b.1
+
+def witness (compute : Unit → F p) := do
+  let x ← witness_var compute
+  assert_bool x
+  return Boolean.mk x
+
+instance : Coe (Boolean (F p)) (Expression (F p)) where
+  coe x := x.var
+end Boolean
+
+
+-- byte type
 variable [p_large_enough: Fact (p > 512)]
 
 def mod (x: F p) (c: ℕ+) (lt: c < p) : F p :=
@@ -252,13 +281,11 @@ def mod (x: F p) (c: ℕ+) (lt: c < p) : F p :=
 def mod_256 (x: F p) : F p :=
   mod x 256 (by linarith [p_large_enough.elim])
 
+def floordiv (x: F p) (c: ℕ+) : F p :=
+  create (x.val / c) (by linarith [Nat.div_le_self x.val c, less_than_p x])
+
 def from_byte (x: Fin 256) : F p :=
   create x.val (by linarith [x.is_lt, p_large_enough.elim])
-
-instance : CommRing (F p) := ZMod.commRing p
-
-def Boolean (x: Expression (F p)) : Stateful (F p) Unit := do
-  assert_zero (x * (x - 1))
 
 def ByteTable : Table (F p) where
   name := "Bytes"
@@ -275,25 +302,42 @@ def byte_lookup (x: F p) := lookup {
     else ⟨0, by show 0 < 256; norm_num⟩
 }
 
+inductive Byte (F: Type) where
+  | private mk : (Variable F) → Byte F
+
+namespace Byte
+def var (b: Byte (F p)) := Expression.var b.1
+
+def witness (compute : Unit → F p) := do
+  let x ← witness_var compute
+  byte_lookup x
+  return Byte.mk x
+
+instance : Coe (Byte (F p)) (Expression (F p)) where
+  coe x := x.var
+end Byte
+
 def Add8 (x y: Expression (F p)) : Stateful (F p) (Expression (F p)) := do
   let z ← witness (fun () => mod_256 (x + y))
   byte_lookup z
+  let carry ← witness (fun () => floordiv (x + y) 256)
+  assert_bool carry
 
-  let carry ← witness (fun () => x + y - z)
-  subcircuit (Boolean carry) ;
-
-  assert_zero (x + y - z - carry * (const 256)) ;
+  assert_zero (x + y - z - carry * (const 256))
   return z
 
 def Main (x y : F p) : Stateful (F p) Unit := do
+  -- in a real AIR definition, these could be inputs to every step
   let x ← create_input x 0
   let y ← create_input y 1
+
   let z ← subcircuit (Add8 x y)
   x.set_next y
   y.set_next z
 
 #eval!
   let p := 1009
+  let p_non_zero := Fact.mk (by norm_num : p ≠ 0)
   let p_large_enough := Fact.mk (by norm_num : p > 512)
   let main := Main (x := (20 : F p)) (y := 30)
   let (_, ops) := main.run
