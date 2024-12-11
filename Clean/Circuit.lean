@@ -20,6 +20,7 @@ inductive Expression (F : Type) where
 namespace Expression
 variable [CommRing F]
 
+@[simp]
 def eval : Expression F → F
   | var v => v.witness ()
   | const c => c
@@ -157,11 +158,13 @@ instance : Monad (Stateful F) where
     let ((ctx'', ops'), b) := g a ctx'
     ((ctx'', ops ++ ops'), b)
 
+@[simp]
 def Stateful.run (circuit: Stateful F α) (offset: ℕ := 0) : Context F × List (Operation F) :=
   let ctx := Context.empty offset
   let ((ctx, ops), _ ) := circuit ctx
   (ctx, ops)
 
+@[simp]
 def as_stateful (f: Context F → Operation F × α) : Stateful F α := fun ctx  =>
   let (op, a) := f ctx
   let ctx' := Operation.run ctx op
@@ -180,6 +183,7 @@ def witness (compute : Unit → F) := do
   return Expression.var var
 
 -- add a constraint
+@[simp]
 def assert_zero (e: Expression F) := as_stateful (
   fun _ => (Operation.Assert e, ())
 )
@@ -243,14 +247,18 @@ def constraints : List (Operation F) →  List (NestedList (Expression F))
     | Operation.Circuit ⟨ _, ops' ⟩ => NestedList.list (constraints ops') :: constraints ops
     | _ => constraints ops
 
-def constraint_holds [CommRing F] (e: Expression F) : Prop := e.eval = 0
-
-def constraints_hold [CommRing F] : List (Operation F) → Prop
-  | [] => true
+@[simp]
+def constraints_hold_from_list [CommRing F] : List (Operation F) → Prop
+  | [] => True
   | op :: ops => match op with
-    | Operation.Assert e => constraint_holds e ∧ constraints_hold ops
-    | Operation.Circuit ⟨ _, ops' ⟩ => constraints_hold ops' ∧ constraints_hold ops
-    | _ => constraints_hold ops
+    | Operation.Assert e => (e.eval = 0) ∧ constraints_hold_from_list ops
+    | Operation.Circuit ⟨ _, ops' ⟩ => constraints_hold_from_list ops' ∧ constraints_hold_from_list ops
+    | _ => constraints_hold_from_list ops
+
+@[simp]
+def constraints_hold [CommRing F] (circuit: Stateful F α) : Prop :=
+  let (_, ops) := circuit.run
+  constraints_hold_from_list ops
 
 end Circuit
 
@@ -259,17 +267,17 @@ open Circuit
 open Circuit.Expression (const)
 
 -- general Fp helpers
-variable {p: ℕ} [p_pos: Fact (p ≠ 0)]
+variable {p: ℕ}
 
 def F p := ZMod p
 instance : CommRing (F p) := ZMod.commRing p
 
-def create (x: ℕ) (lt: x < p) : F p :=
+def create (n: ℕ) (lt: n < p) : F p :=
   match p with
-  | 0 => False.elim (Nat.not_lt_zero x lt)
-  | _ + 1 => ⟨ x, lt ⟩
+  | 0 => False.elim (Nat.not_lt_zero n lt)
+  | _ + 1 => ⟨ n, lt ⟩
 
-def less_than_p (x: F p) : x.val < p := by
+def less_than_p [p_pos: Fact (p ≠ 0)] (x: F p) : x.val < p := by
   rcases p
   · have : 0 ≠ 0 := p_pos.elim; tauto
   · exact x.is_lt
@@ -292,6 +300,20 @@ def witness (compute : Unit → F p) := do
 
 instance : Coe (Boolean (F p)) (Expression (F p)) where
   coe x := x.var
+
+def spec (x: F p) := x = 0 ∨ x = 1
+
+theorem equiv : ∀ X: Expression (F p),
+  constraints_hold (assert_bool X) ↔ spec X.eval
+:= by
+  intro X
+  simp [assert_bool, spec]
+  set x := X.eval
+  show x * (x + -1) = 0 ↔ x = 0 ∨ x = 1
+  constructor
+  · sorry
+  · sorry
+
 end Boolean
 
 
@@ -304,7 +326,7 @@ def mod (x: F p) (c: ℕ+) (lt: c < p) : F p :=
 def mod_256 (x: F p) : F p :=
   mod x 256 (by linarith [p_large_enough.elim])
 
-def floordiv (x: F p) (c: ℕ+) : F p :=
+def floordiv [Fact (p ≠ 0)] (x: F p) (c: ℕ+) : F p :=
   create (x.val / c) (by linarith [Nat.div_le_self x.val c, less_than_p x])
 
 def from_byte (x: Fin 256) : F p :=
@@ -339,6 +361,8 @@ def witness (compute : Unit → F p) := do
 instance : Coe (Byte (F p)) (Expression (F p)) where
   coe x := x.var
 end Byte
+
+variable [Fact (p ≠ 0)]
 
 def Add8 (x y: Expression (F p)) : Stateful (F p) (Expression (F p)) := do
   let z ← witness (fun () => mod_256 (x + y))
