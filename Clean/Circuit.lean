@@ -1,0 +1,456 @@
+import Mathlib.Algebra.Field.Basic
+import Mathlib.Data.ZMod.Basic
+import Clean.Utils.Primes
+namespace Circuit
+variable {F: Type}
+
+structure Variable (F : Type) where
+  index: ℕ
+  witness: Unit → F
+
+instance : Repr (Variable F) where
+  reprPrec v _ := "x" ++ repr v.index
+
+inductive Expression (F : Type) where
+  | var : Variable F -> Expression F
+  | const : F -> Expression F
+  | add : Expression F -> Expression F -> Expression F
+  | mul : Expression F -> Expression F -> Expression F
+
+namespace Expression
+variable [Field F]
+
+@[simp]
+def eval : Expression F → F
+  | var v => v.witness ()
+  | const c => c
+  | add x y => eval x + eval y
+  | mul x y => eval x * eval y
+
+@[simp]
+def eval_from_trace (trace: ℕ → F) : Expression F → F
+  | var v => trace v.index
+  | const c => c
+  | add x y => eval_from_trace trace x + eval_from_trace trace y
+  | mul x y => eval_from_trace trace x * eval_from_trace trace y
+
+def toString [Repr F] : Expression F → String
+  | var v => "x" ++ reprStr v.index
+  | const c => reprStr c
+  | add x y => "(" ++ toString x ++ " + " ++ toString y ++ ")"
+  | mul x y => "(" ++ toString x ++ " * " ++ toString y ++ ")"
+
+instance [Repr F] : Repr (Expression F) where
+  reprPrec e _ := toString e
+
+-- combine expressions elegantly
+instance : Zero (Expression F) where
+  zero := const 0
+
+instance : One (Expression F) where
+  one := const 1
+
+instance : Add (Expression F) where
+  add := add
+
+instance : Neg (Expression F) where
+  neg e := mul (const (-1)) e
+
+instance : Sub (Expression F) where
+  sub e₁ e₂ := add e₁ (-e₂)
+
+instance : Mul (Expression F) where
+  mul := mul
+
+instance : Coe F (Expression F) where
+  coe f := const f
+
+instance : Coe (Variable F) (Expression F) where
+  coe x := var x
+
+instance : Coe (Expression F) F where
+  coe x := x.eval
+
+instance : HMul F (Expression F) (Expression F) where
+  hMul := fun f e => mul f e
+end Expression
+
+def Row (F : Type) (n: ℕ) := { l: List F // l.length = n }
+def row (l: List F) : Row F l.length := ⟨ l, rfl ⟩
+
+instance [Repr F] {n: ℕ} : Repr (Row F n) where
+  reprPrec l _ := repr l.val
+
+structure Table (F : Type) where
+  name: String
+  length: ℕ
+  arity: ℕ
+  row: Fin length → { l: List F // l.length = arity }
+
+structure Lookup (F : Type) where
+  table: Table F
+  entry: Row (Expression F) table.arity
+  index: Unit → Fin table.length -- index of the entry
+
+instance [Repr F] : Repr (Lookup F) where
+  reprPrec l _ := "(Lookup " ++ l.table.name ++ " " ++ repr l.entry ++ ")"
+
+inductive RowIndex
+  | Current
+  | Next
+deriving Repr
+
+structure Cell (F : Type) where
+  row: RowIndex
+  column: ℕ -- index of the column
+deriving Repr
+
+structure Context (F : Type) where
+  offset: ℕ
+  locals: Array (Variable F)
+  constraints: Array (Expression F)
+  lookups: Array (Lookup F)
+  assignments: Array (Cell F × Variable F)
+deriving Repr
+
+namespace Context
+@[simp]
+def empty (offset: ℕ) : Context F := ⟨ offset, #[] , #[] , #[] , #[] ⟩
+end Context
+
+variable {α : Type}
+
+inductive Operation (F : Type) where
+  | Witness : (compute : Unit → F) → Operation F
+  | Assert : Expression F → Operation F
+  | Lookup : Lookup F → Operation F
+  | Assign : Cell F × Variable F → Operation F
+  | Circuit : Context F × List (Operation F) → Operation F
+
+namespace Operation
+
+@[simp]
+def run (ctx: Context F) : Operation F → Context F
+  | Witness compute =>
+    let var := ⟨ ctx.offset, compute ⟩
+    let offset := ctx.offset + 1
+    { ctx with offset, locals := ctx.locals.push var }
+  | Assert e => { ctx with constraints := ctx.constraints.push e }
+  | Lookup l => { ctx with lookups := ctx.lookups.push l }
+  | Assign (c, v) => { ctx with assignments := ctx.assignments.push (c, v) }
+  | Circuit _ => ctx
+
+def toString [Repr F] : (op : Operation F) → String
+  | Witness _v => "Witness"
+  | Assert e => "(Assert " ++ reprStr e ++ " == 0)"
+  | Lookup l => reprStr l
+  | Assign (c, v) => "(Assign " ++ reprStr c ++ ", " ++ reprStr v ++ ")"
+  | Circuit ⟨ _, ops ⟩ => "(Circuit " ++ reprStr (go ops) ++ ")"
+-- this helps lean recognize the structural recursion
+where go (ops : List (Operation F)) : List String :=
+  match ops with
+  | [] => []
+  | op :: ops => op.toString :: go ops
+
+instance [Repr F] : ToString (Operation F) where
+  toString := toString
+end Operation
+
+@[simp]
+def Stateful (F : Type) (α : Type) := Context F → (Context F × List (Operation F)) × α
+
+instance : Monad (Stateful F) where
+  pure a ctx := ((ctx, []), a)
+  bind f g ctx :=
+    let ((ctx', ops), a) := f ctx
+    let ((ctx'', ops'), b) := g a ctx'
+    ((ctx'', ops ++ ops'), b)
+
+@[simp]
+def Stateful.run (circuit: Stateful F α) (offset: ℕ := 0) : Context F × List (Operation F) × α :=
+  let ctx := Context.empty offset
+  let ((ctx, ops), a ) := circuit ctx
+  (ctx, ops, a)
+
+@[simp]
+def as_stateful (f: Context F → Operation F × α) : Stateful F α := fun ctx  =>
+  let (op, a) := f ctx
+  let ctx' := Operation.run ctx op
+  (⟨ ctx', [op] ⟩, a)
+
+-- operations we can do in a circuit
+
+-- create a new variable
+@[simp]
+def witness_var (compute : Unit → F) := as_stateful (fun ctx =>
+  let var: Variable F := ⟨ ctx.offset, compute ⟩
+  (Operation.Witness compute, var)
+)
+
+@[simp]
+def witness (compute : Unit → F) := do
+  let var ← witness_var compute
+  return Expression.var var
+
+-- add a constraint
+@[simp]
+def assert_zero (e: Expression F) := as_stateful (
+  fun _ => (Operation.Assert e, ())
+)
+
+-- add a lookup
+@[simp]
+def lookup (l: Lookup F) := as_stateful (
+  fun _ => (Operation.Lookup l, ())
+)
+
+-- assign a variable to a cell
+@[simp]
+def assign_cell (c: Cell F) (v: Variable F) := as_stateful (
+  fun _ => (Operation.Assign (c, v), ())
+)
+
+-- run a sub-circuit
+@[simp]
+def subcircuit (circuit: Stateful F α) := as_stateful (
+  fun ctx =>
+    let subctx := Context.empty ctx.offset
+    let (state, a) := circuit subctx
+    (Operation.Circuit state, a)
+)
+
+-- TODO derived operations: assert(lhs == rhs), <== (witness + assert)
+
+def to_var [Field F] (x: Expression F) : Stateful F (Variable F) :=
+  match x with
+  | Expression.var v => pure v
+  | x => do
+    let x' ← witness_var (fun _ => x.eval)
+    assert_zero (x - (Expression.var x'))
+    return x'
+
+structure InputCell (F : Type) where
+  cell: { cell: Cell F // cell.row = RowIndex.Current }
+  var: Variable F
+
+def InputCell.set_next [Field F] (c: InputCell F) (v: Expression F) := do
+  let v' ← to_var v
+  assign_cell { c.cell.val with row := RowIndex.Next } v'
+
+def create_input (value: F) (column: ℕ) : Stateful F (InputCell F) := do
+  let var ← witness_var (fun _ => value)
+  let cell: Cell F := ⟨ RowIndex.Current, column ⟩
+  assign_cell cell var
+  let input: InputCell F := ⟨ ⟨ cell, rfl ⟩, var ⟩
+  return input
+
+instance : Coe (InputCell F) (Variable F) where
+  coe x := x.var
+
+-- extract information from circuits by running them
+inductive NestedList (α : Type) :=
+  | scalar : α → NestedList α
+  | list : List (NestedList α) → NestedList α
+deriving Repr
+
+def constraints : List (Operation F) →  List (NestedList (Expression F))
+  | [] => []
+  | op :: ops => match op with
+    | Operation.Assert e => NestedList.scalar e :: constraints ops
+    | Operation.Circuit ⟨ _, ops' ⟩ => NestedList.list (constraints ops') :: constraints ops
+    | _ => constraints ops
+
+def witness_length (circuit : Stateful F α) : ℕ :=
+  let (ctx, _, _) := circuit.run
+  ctx.locals.size
+
+def constraint [Field F]  (f: F) : Prop := f = 0
+
+@[simp]
+def constraints_hold_from_list [Field F] (trace: (ℕ → F)) : List (Operation F) → Prop
+  | [] => True
+  | op :: ops => match op with
+    | Operation.Assert e => ((e.eval_from_trace trace) = 0) ∧ constraints_hold_from_list trace ops
+    | Operation.Circuit ⟨ _, ops' ⟩ => constraints_hold_from_list trace ops' ∧ constraints_hold_from_list trace ops
+    | _ => constraints_hold_from_list trace ops
+
+@[simp]
+def constraints_hold [Field F] (circuit: Stateful F α) (trace: (ℕ → F))  : Prop :=
+  let (_, ops, _) := circuit.run
+  -- let trace i := if h : i < witness.length then witness.get ⟨i, h⟩ else 0
+  constraints_hold_from_list trace ops
+
+end Circuit
+
+section -- examples
+open Circuit
+open Circuit.Expression (const)
+
+-- general Fp helpers
+variable {p: ℕ} [Fact p.Prime]
+
+def F p := ZMod p
+instance isField : Field (F p) := ZMod.instField p
+instance : CommRing (F p) := isField.toCommRing
+
+def create (n: ℕ) (lt: n < p) : F p :=
+  match p with
+  | 0 => False.elim (Nat.not_lt_zero n lt)
+  | _ + 1 => ⟨ n, lt ⟩
+
+def less_than_p [p_pos: Fact (p ≠ 0)] (x: F p) : x.val < p := by
+  rcases p
+  · have : 0 ≠ 0 := p_pos.elim; tauto
+  · exact x.is_lt
+
+-- boolean type
+
+def assert_bool (x: Expression (F p)) := do
+  assert_zero (x * (x - 1))
+
+inductive Boolean (F: Type) where
+  | private mk : (Variable F) → Boolean F
+
+namespace Boolean
+def var (b: Boolean (F p)) := Expression.var b.1
+
+def witness (compute : Unit → F p) := do
+  let x ← witness_var compute
+  assert_bool x
+  return Boolean.mk x
+
+instance : Coe (Boolean (F p)) (Expression (F p)) where
+  coe x := x.var
+
+def spec (x: F p) := x = 0 ∨ x = 1
+
+theorem simp_equiv : ∀ x: F p,
+  x = 0 ∨ x + -1 = 0 ↔ x = 0 ∨ x = 1 :=
+by
+  intro x
+  suffices x + -1 = 0 ↔ x = 1 by tauto
+  constructor
+  · intro (h : x + -1 = 0)
+    show x = 1
+    calc x
+    _ = (x + -1) + 1 := by ring
+    _ = 1 := by simp [h]
+  · intro (h : x = 1)
+    show x + -1 = 0
+    simp [h]
+
+theorem equiv : ∀ x: F p,
+  constraints_hold (assert_bool (const x)) (fun _ => (0: F p)) ↔ spec x
+:= by
+  -- simplify
+  intro x
+  simp [assert_bool, spec, constraint]
+  show x = 0 ∨ x + -1 = 0 ↔ x = 0 ∨ x = 1
+
+  -- proof
+  exact simp_equiv x
+end Boolean
+
+
+-- byte type
+variable [p_large_enough: Fact (p > 512)]
+
+def mod (x: F p) (c: ℕ+) (lt: c < p) : F p :=
+  create (x.val % c) (by linarith [Nat.mod_lt x.val c.pos, lt])
+
+def mod_256 (x: F p) : F p :=
+  mod x 256 (by linarith [p_large_enough.elim])
+
+def floordiv [Fact (p ≠ 0)] (x: F p) (c: ℕ+) : F p :=
+  create (x.val / c) (by linarith [Nat.div_le_self x.val c, less_than_p x])
+
+def from_byte (x: Fin 256) : F p :=
+  create x.val (by linarith [x.is_lt, p_large_enough.elim])
+
+def ByteTable : Table (F p) where
+  name := "Bytes"
+  length := 256
+  arity := 1
+  row i := row [from_byte i]
+
+def byte_lookup (x: Expression (F p)) := lookup {
+  table := ByteTable
+  entry := row [x]
+  index := fun () =>
+    let x := x.eval.val
+    if h : (x < 256)
+    then ⟨x, h⟩
+    else ⟨0, by show 0 < 256; norm_num⟩
+}
+
+inductive Byte (F: Type) where
+  | private mk : (Variable F) → Byte F
+
+namespace Byte
+def var (b: Byte (F p)) := Expression.var b.1
+
+def witness (compute : Unit → F p) := do
+  let x ← witness_var compute
+  byte_lookup x
+  return Byte.mk x
+
+instance : Coe (Byte (F p)) (Expression (F p)) where
+  coe x := x.var
+end Byte
+
+variable [Fact (p ≠ 0)]
+
+def Add8 (x y: Expression (F p)) : Stateful (F p) (Expression (F p)) := do
+  let z ← witness (fun () => mod_256 (x + y))
+  byte_lookup z
+  let carry ← witness (fun () => floordiv (x + y) 256)
+  subcircuit (assert_bool carry)
+
+  assert_zero (x + y - z - carry * (const 256))
+  return z
+
+namespace Add8
+def spec (x y z: F p) := z.val = (x.val + y.val) % 256
+
+theorem soundness : ∀ x y z : F p,
+  x.val < 256 → y.val < 256 → z.val < 256 →
+  (
+    (∃ carry : F p, constraints_hold (Add8 (const x) (const y)) (fun i => if i=0 then z else carry))
+    → spec x y z
+  )
+:= by
+  -- simplify
+  intro x y z hx hy hz ⟨carry, h⟩
+  -- simplify our custom circuits first, then the rest (directly doesn't work :/)
+  -- simp [Add8, assert_bool, byte_lookup] at h
+  dsimp [Add8, assert_bool, byte_lookup] at h
+  simp at h
+  simp [spec]
+
+  -- proof
+  rcases h with ⟨h_bool, h_add⟩
+
+  -- reuse Boolean.simp_equiv, the version of Boolean.equiv after simplifying
+  have spec_bool: carry = 0 ∨ carry = 1 := (Boolean.simp_equiv carry).mp h_bool
+
+  sorry
+end Add8
+
+def Main (x y : F p) : Stateful (F p) Unit := do
+  -- in a real AIR definition, these could be inputs to every step
+  let x ← create_input x 0
+  let y ← create_input y 1
+
+  let z ← subcircuit (Add8 x y)
+  x.set_next y
+  y.set_next z
+
+#eval
+  let p := 1009
+  let p_prime := Fact.mk prime_1009
+  let p_non_zero := Fact.mk (by norm_num : p ≠ 0)
+  let p_large_enough := Fact.mk (by norm_num : p > 512)
+  let main := Main (x := (20 : F p)) (y := 30)
+  let (_, ops, _) := main.run
+  ops
+end
