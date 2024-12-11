@@ -314,7 +314,7 @@ theorem equiv : ∀ X: Expression (F p),
   show x = 0 ∨ x + -1 = 0 ↔ x = 0 ∨ x = 1
 
   -- proof
-  suffices h: x + -1 = 0 ↔ x = 1 by tauto
+  suffices x + -1 = 0 ↔ x = 1 by tauto
   constructor
   · intro (h : x + -1 = 0)
     show x = 1
@@ -348,12 +348,13 @@ def ByteTable : Table (F p) where
   arity := 1
   row i := row [from_byte i]
 
-def byte_lookup (x: F p) := lookup {
+def byte_lookup (x: Expression (F p)) := lookup {
   table := ByteTable
-  entry := row [const x]
+  entry := row [x]
   index := fun () =>
-    if h : (x.val < 256)
-    then ⟨x.val, h⟩
+    let x := x.eval.val
+    if h : (x < 256)
+    then ⟨x, h⟩
     else ⟨0, by show 0 < 256; norm_num⟩
 }
 
@@ -392,8 +393,8 @@ def Main (x y : F p) : Stateful (F p) Unit := do
   x.set_next y
   y.set_next z
 
--- this would only be needed if we did inversion somewhere
 theorem prime_1009 : Nat.Prime 1009 := by
+  -- isn't there a more efficient way to prove primalitity?
   set_option maxRecDepth 900 in decide
 
 #eval
@@ -403,5 +404,5 @@ theorem prime_1009 : Nat.Prime 1009 := by
   let p_large_enough := Fact.mk (by norm_num : p > 512)
   let main := Main (x := (20 : F p)) (y := 30)
   let (_, ops) := main.run
-  constraints ops
+  ops
 end
