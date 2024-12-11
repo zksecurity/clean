@@ -18,7 +18,7 @@ inductive Expression (F : Type) where
   | mul : Expression F -> Expression F -> Expression F
 
 namespace Expression
-variable [CommRing F]
+variable [Field F]
 
 @[simp]
 def eval : Expression F → F
@@ -208,7 +208,7 @@ def subcircuit (circuit: Stateful F α) := as_stateful (
 
 -- TODO derived operations: assert(lhs == rhs), <== (witness + assert)
 
-def to_var [CommRing F] (x: Expression F) : Stateful F (Variable F) :=
+def to_var [Field F] (x: Expression F) : Stateful F (Variable F) :=
   match x with
   | Expression.var v => pure v
   | x => do
@@ -220,7 +220,7 @@ structure InputCell (F : Type) where
   cell: { cell: Cell F // cell.row = RowIndex.Current }
   var: Variable F
 
-def InputCell.set_next [CommRing F] (c: InputCell F) (v: Expression F) := do
+def InputCell.set_next [Field F] (c: InputCell F) (v: Expression F) := do
   let v' ← to_var v
   assign_cell { c.cell.val with row := RowIndex.Next } v'
 
@@ -248,7 +248,7 @@ def constraints : List (Operation F) →  List (NestedList (Expression F))
     | _ => constraints ops
 
 @[simp]
-def constraints_hold_from_list [CommRing F] : List (Operation F) → Prop
+def constraints_hold_from_list [Field F] : List (Operation F) → Prop
   | [] => True
   | op :: ops => match op with
     | Operation.Assert e => (e.eval = 0) ∧ constraints_hold_from_list ops
@@ -256,7 +256,7 @@ def constraints_hold_from_list [CommRing F] : List (Operation F) → Prop
     | _ => constraints_hold_from_list ops
 
 @[simp]
-def constraints_hold [CommRing F] (circuit: Stateful F α) : Prop :=
+def constraints_hold [Field F] (circuit: Stateful F α) : Prop :=
   let (_, ops) := circuit.run
   constraints_hold_from_list ops
 
@@ -267,10 +267,11 @@ open Circuit
 open Circuit.Expression (const)
 
 -- general Fp helpers
-variable {p: ℕ}
+variable {p: ℕ} [Fact p.Prime]
 
 def F p := ZMod p
-instance : CommRing (F p) := ZMod.commRing p
+instance isField : Field (F p) := ZMod.instField p
+instance : CommRing (F p) := isField.toCommRing
 
 def create (n: ℕ) (lt: n < p) : F p :=
   match p with
@@ -303,10 +304,6 @@ instance : Coe (Boolean (F p)) (Expression (F p)) where
 
 def spec (x: F p) := x = 0 ∨ x = 1
 
--- helper lemma TODO
-lemma mul_eq_zero {x y: F p} : x * y = 0 → x = 0 ∨ y = 0 := by
-  sorry
-
 theorem equiv : ∀ X: Expression (F p),
   constraints_hold (assert_bool X) ↔ spec X.eval
 := by
@@ -314,27 +311,19 @@ theorem equiv : ∀ X: Expression (F p),
   intro X
   simp [assert_bool, spec]
   set x := X.eval
-  show x * (x + -1) = 0 ↔ x = 0 ∨ x = 1
+  show x = 0 ∨ x + -1 = 0 ↔ x = 0 ∨ x = 1
 
   -- proof
+  suffices h: x + -1 = 0 ↔ x = 1 by tauto
   constructor
-  · intro (h : x * (x + -1) = 0)
-    rcases mul_eq_zero h with ((h0 : x = 0) | (h1 : x + -1 = 0))
-    · left; show x = 0
-      exact h0
-    · right; show x = 1
-      calc x
-      _ = (x + -1) + 1 := by ring
-      _ = 1 := by simp [h1]
-  · intro (h : x = 0 ∨ x = 1)
-    show x * (x + -1) = 0
-    rcases h with ((h0 : x = 0) | (h1 : x = 1))
-    · calc x * (x + -1)
-      _ = 0 * (0 + -1) := by rw [h0]
-      _ = 0 := by simp
-    · calc x * (x + -1)
-      _ = 1 * (1 + -1) := by rw [h1]
-      _ = 0 := by simp
+  · intro (h : x + -1 = 0)
+    show x = 1
+    calc x
+    _ = (x + -1) + 1 := by ring
+    _ = 1 := by simp [h]
+  · intro (h : x = 1)
+    show x + -1 = 0
+    simp [h]
 end Boolean
 
 
@@ -403,15 +392,16 @@ def Main (x y : F p) : Stateful (F p) Unit := do
   x.set_next y
   y.set_next z
 
+-- this would only be needed if we did inversion somewhere
+theorem prime_1009 : Nat.Prime 1009 := by
+  set_option maxRecDepth 900 in decide
+
 #eval
   let p := 1009
+  let p_prime := Fact.mk prime_1009
   let p_non_zero := Fact.mk (by norm_num : p ≠ 0)
   let p_large_enough := Fact.mk (by norm_num : p > 512)
   let main := Main (x := (20 : F p)) (y := 30)
   let (_, ops) := main.run
   constraints ops
 end
-
--- this would only be needed if we did inversion somewhere
--- theorem prime_1009 : Nat.Prime 1009 := by
---   set_option maxRecDepth 900 in decide
