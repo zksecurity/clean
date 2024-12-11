@@ -270,7 +270,7 @@ def constraint [Field F]  (f: F) : Prop := f = 0
 def constraints_hold_from_list [Field F] (trace: (ℕ → F)) : List (Operation F) → Prop
   | [] => True
   | op :: ops => match op with
-    | Operation.Assert e => (constraint (e.eval_from_trace trace)) ∧ constraints_hold_from_list trace ops
+    | Operation.Assert e => ((e.eval_from_trace trace) = 0) ∧ constraints_hold_from_list trace ops
     | Operation.Circuit ⟨ _, ops' ⟩ => constraints_hold_from_list trace ops' ∧ constraints_hold_from_list trace ops
     | _ => constraints_hold_from_list trace ops
 
@@ -329,15 +329,10 @@ instance : Coe (Boolean (F p)) (Expression (F p)) where
 
 def spec (x: F p) := x = 0 ∨ x = 1
 
-theorem equiv : ∀ x: F p,
-  constraints_hold (assert_bool (const x)) (fun _ => (0: F p)) ↔ spec x
-:= by
-  -- simplify
+theorem simp_equiv : ∀ x: F p,
+  x = 0 ∨ x + -1 = 0 ↔ x = 0 ∨ x = 1 :=
+by
   intro x
-  simp [assert_bool, spec, constraint]
-  show x = 0 ∨ x + -1 = 0 ↔ x = 0 ∨ x = 1
-
-  -- proof
   suffices x + -1 = 0 ↔ x = 1 by tauto
   constructor
   · intro (h : x + -1 = 0)
@@ -348,6 +343,17 @@ theorem equiv : ∀ x: F p,
   · intro (h : x = 1)
     show x + -1 = 0
     simp [h]
+
+theorem equiv : ∀ x: F p,
+  constraints_hold (assert_bool (const x)) (fun _ => (0: F p)) ↔ spec x
+:= by
+  -- simplify
+  intro x
+  simp [assert_bool, spec, constraint]
+  show x = 0 ∨ x + -1 = 0 ↔ x = 0 ∨ x = 1
+
+  -- proof
+  exact simp_equiv x
 end Boolean
 
 
@@ -412,18 +418,27 @@ namespace Add8
 def spec (x y z: F p) := z.val = (x.val + y.val) % 256
 
 theorem soundness : ∀ x y z : F p,
-  (∃ carry : F p, constraints_hold (Add8 (const x) (const y)) (fun i => if i=0 then z else carry))
-  → spec x y z
+  x.val < 256 → y.val < 256 → z.val < 256 →
+  (
+    (∃ carry : F p, constraints_hold (Add8 (const x) (const y)) (fun i => if i=0 then z else carry))
+    → spec x y z
+  )
 := by
-  intro x y z
-  rintro ⟨carry, h⟩
-  -- simplify our custom circuits
+  -- simplify
+  intro x y z hx hy hz ⟨carry, h⟩
+  -- simplify our custom circuits first, then the rest (directly doesn't work :/)
+  -- simp [Add8, assert_bool, byte_lookup] at h
   dsimp [Add8, assert_bool, byte_lookup] at h
   simp at h
+  simp [spec]
 
+  -- proof
+  rcases h with ⟨h_bool, h_add⟩
+
+  -- reuse Boolean.simp_equiv, the version of Boolean.equiv after simplifying
+  have spec_bool: carry = 0 ∨ carry = 1 := (Boolean.simp_equiv carry).mp h_bool
 
   sorry
-
 end Add8
 
 def Main (x y : F p) : Stateful (F p) Unit := do
@@ -434,8 +449,6 @@ def Main (x y : F p) : Stateful (F p) Unit := do
   let z ← subcircuit (Add8 x y)
   x.set_next y
   y.set_next z
-
-
 
 #eval
   let p := 1009
