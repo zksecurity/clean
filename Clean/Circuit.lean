@@ -303,17 +303,38 @@ instance : Coe (Boolean (F p)) (Expression (F p)) where
 
 def spec (x: F p) := x = 0 ∨ x = 1
 
+-- helper lemma TODO
+lemma mul_eq_zero {x y: F p} : x * y = 0 → x = 0 ∨ y = 0 := by
+  sorry
+
 theorem equiv : ∀ X: Expression (F p),
   constraints_hold (assert_bool X) ↔ spec X.eval
 := by
+  -- simplify
   intro X
   simp [assert_bool, spec]
   set x := X.eval
   show x * (x + -1) = 0 ↔ x = 0 ∨ x = 1
-  constructor
-  · sorry
-  · sorry
 
+  -- proof
+  constructor
+  · intro (h : x * (x + -1) = 0)
+    rcases mul_eq_zero h with ((h0 : x = 0) | (h1 : x + -1 = 0))
+    · left; show x = 0
+      exact h0
+    · right; show x = 1
+      calc x
+      _ = (x + -1) + 1 := by ring
+      _ = 1 := by simp [h1]
+  · intro (h : x = 0 ∨ x = 1)
+    show x * (x + -1) = 0
+    rcases h with ((h0 : x = 0) | (h1 : x = 1))
+    · calc x * (x + -1)
+      _ = 0 * (0 + -1) := by rw [h0]
+      _ = 0 := by simp
+    · calc x * (x + -1)
+      _ = 1 * (1 + -1) := by rw [h1]
+      _ = 0 := by simp
 end Boolean
 
 
