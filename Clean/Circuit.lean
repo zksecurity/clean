@@ -114,6 +114,7 @@ structure Context (F : Type) where
 deriving Repr
 
 namespace Context
+@[simp]
 def empty (offset: ℕ) : Context F := ⟨ offset, #[] , #[] , #[] , #[] ⟩
 end Context
 
@@ -128,6 +129,7 @@ inductive Operation (F : Type) where
 
 namespace Operation
 
+@[simp]
 def run (ctx: Context F) : Operation F → Context F
   | Witness compute =>
     let var := ⟨ ctx.offset, compute ⟩
@@ -136,9 +138,7 @@ def run (ctx: Context F) : Operation F → Context F
   | Assert e => { ctx with constraints := ctx.constraints.push e }
   | Lookup l => { ctx with lookups := ctx.lookups.push l }
   | Assign (c, v) => { ctx with assignments := ctx.assignments.push (c, v) }
-  | Circuit ⟨ subctx, _ops ⟩ =>
-    -- TODO probably want to import more stuff from the subcontext
-    { ctx with offset := subctx.offset }
+  | Circuit _ => ctx
 
 def toString [Repr F] : (op : Operation F) → String
   | Witness _v => "Witness"
@@ -156,6 +156,7 @@ instance [Repr F] : ToString (Operation F) where
   toString := toString
 end Operation
 
+@[simp]
 def Stateful (F : Type) (α : Type) := Context F → (Context F × List (Operation F)) × α
 
 instance : Monad (Stateful F) where
@@ -185,6 +186,7 @@ def witness_var (compute : Unit → F) := as_stateful (fun ctx =>
   let var: Variable F := ⟨ ctx.offset, compute ⟩
   (Operation.Witness compute, var)
 )
+
 @[simp]
 def witness (compute : Unit → F) := do
   let var ← witness_var compute
@@ -262,11 +264,13 @@ def witness_length (circuit : Stateful F α) : ℕ :=
   let (ctx, _, _) := circuit.run
   ctx.locals.size
 
+def constraint [Field F]  (f: F) : Prop := f = 0
+
 @[simp]
 def constraints_hold_from_list [Field F] (trace: (ℕ → F)) : List (Operation F) → Prop
   | [] => True
   | op :: ops => match op with
-    | Operation.Assert e => (e.eval_from_trace trace = 0) ∧ constraints_hold_from_list trace ops
+    | Operation.Assert e => (constraint (e.eval_from_trace trace)) ∧ constraints_hold_from_list trace ops
     | Operation.Circuit ⟨ _, ops' ⟩ => constraints_hold_from_list trace ops' ∧ constraints_hold_from_list trace ops
     | _ => constraints_hold_from_list trace ops
 
@@ -330,7 +334,7 @@ theorem equiv : ∀ x: F p,
 := by
   -- simplify
   intro x
-  simp [assert_bool, spec]
+  simp [assert_bool, spec, constraint]
   show x = 0 ∨ x + -1 = 0 ↔ x = 0 ∨ x = 1
 
   -- proof
@@ -412,13 +416,14 @@ theorem soundness : ∀ x y z : F p,
   → spec x y z
 := by
   intro x y z
-  rintro ⟨ carry, constraints ⟩
-  simp [Add8, assert_bool, byte_lookup, Context.empty] at constraints
-
-
+  rintro ⟨carry, h⟩
+  -- simplify our custom circuits
+  dsimp [Add8, assert_bool, byte_lookup] at h
+  simp at h
 
 
   sorry
+
 end Add8
 
 def Main (x y : F p) : Stateful (F p) Unit := do
