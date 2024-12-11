@@ -280,11 +280,6 @@ def constraints_hold [Field F] (circuit: Stateful F α) (trace: (ℕ → F))  : 
   -- let trace i := if h : i < witness.length then witness.get ⟨i, h⟩ else 0
   constraints_hold_from_list trace ops
 
--- @[simp]
--- def constraints_hold_with_output [Field F] (trace: (ℕ → F)) (circuit: Stateful F α) (a : α) : Prop :=
---   let (_, ops, a') := circuit.run
---   a = a' ∧ (constraints_hold_from_list trace ops)
-
 end Circuit
 
 section -- examples
