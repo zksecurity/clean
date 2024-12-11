@@ -1,6 +1,6 @@
 import Mathlib.Algebra.Field.Basic
 import Mathlib.Data.ZMod.Basic
-
+import Clean.Utils.Primes
 namespace Circuit
 variable {F: Type}
 
@@ -27,8 +27,15 @@ def eval : Expression F → F
   | add x y => eval x + eval y
   | mul x y => eval x * eval y
 
+@[simp]
+def eval_from_trace (trace: ℕ → F) : Expression F → F
+  | var v => trace v.index
+  | const c => c
+  | add x y => eval_from_trace trace x + eval_from_trace trace y
+  | mul x y => eval_from_trace trace x * eval_from_trace trace y
+
 def toString [Repr F] : Expression F → String
-  | var v => reprStr v
+  | var v => "x" ++ reprStr v.index
   | const c => reprStr c
   | add x y => "(" ++ toString x ++ " + " ++ toString y ++ ")"
   | mul x y => "(" ++ toString x ++ " * " ++ toString y ++ ")"
@@ -159,10 +166,10 @@ instance : Monad (Stateful F) where
     ((ctx'', ops ++ ops'), b)
 
 @[simp]
-def Stateful.run (circuit: Stateful F α) (offset: ℕ := 0) : Context F × List (Operation F) :=
+def Stateful.run (circuit: Stateful F α) (offset: ℕ := 0) : Context F × List (Operation F) × α :=
   let ctx := Context.empty offset
-  let ((ctx, ops), _ ) := circuit ctx
-  (ctx, ops)
+  let ((ctx, ops), a ) := circuit ctx
+  (ctx, ops, a)
 
 @[simp]
 def as_stateful (f: Context F → Operation F × α) : Stateful F α := fun ctx  =>
@@ -173,11 +180,12 @@ def as_stateful (f: Context F → Operation F × α) : Stateful F α := fun ctx 
 -- operations we can do in a circuit
 
 -- create a new variable
+@[simp]
 def witness_var (compute : Unit → F) := as_stateful (fun ctx =>
   let var: Variable F := ⟨ ctx.offset, compute ⟩
   (Operation.Witness compute, var)
 )
-
+@[simp]
 def witness (compute : Unit → F) := do
   let var ← witness_var compute
   return Expression.var var
@@ -189,16 +197,19 @@ def assert_zero (e: Expression F) := as_stateful (
 )
 
 -- add a lookup
+@[simp]
 def lookup (l: Lookup F) := as_stateful (
   fun _ => (Operation.Lookup l, ())
 )
 
 -- assign a variable to a cell
+@[simp]
 def assign_cell (c: Cell F) (v: Variable F) := as_stateful (
   fun _ => (Operation.Assign (c, v), ())
 )
 
 -- run a sub-circuit
+@[simp]
 def subcircuit (circuit: Stateful F α) := as_stateful (
   fun ctx =>
     let subctx := Context.empty ctx.offset
@@ -247,18 +258,28 @@ def constraints : List (Operation F) →  List (NestedList (Expression F))
     | Operation.Circuit ⟨ _, ops' ⟩ => NestedList.list (constraints ops') :: constraints ops
     | _ => constraints ops
 
-@[simp]
-def constraints_hold_from_list [Field F] : List (Operation F) → Prop
-  | [] => True
-  | op :: ops => match op with
-    | Operation.Assert e => (e.eval = 0) ∧ constraints_hold_from_list ops
-    | Operation.Circuit ⟨ _, ops' ⟩ => constraints_hold_from_list ops' ∧ constraints_hold_from_list ops
-    | _ => constraints_hold_from_list ops
+def witness_length (circuit : Stateful F α) : ℕ :=
+  let (ctx, _, _) := circuit.run
+  ctx.locals.size
 
 @[simp]
-def constraints_hold [Field F] (circuit: Stateful F α) : Prop :=
-  let (_, ops) := circuit.run
-  constraints_hold_from_list ops
+def constraints_hold_from_list [Field F] (trace: (ℕ → F)) : List (Operation F) → Prop
+  | [] => True
+  | op :: ops => match op with
+    | Operation.Assert e => (e.eval_from_trace trace = 0) ∧ constraints_hold_from_list trace ops
+    | Operation.Circuit ⟨ _, ops' ⟩ => constraints_hold_from_list trace ops' ∧ constraints_hold_from_list trace ops
+    | _ => constraints_hold_from_list trace ops
+
+@[simp]
+def constraints_hold [Field F] (circuit: Stateful F α) (trace: (ℕ → F))  : Prop :=
+  let (_, ops, _) := circuit.run
+  -- let trace i := if h : i < witness.length then witness.get ⟨i, h⟩ else 0
+  constraints_hold_from_list trace ops
+
+-- @[simp]
+-- def constraints_hold_with_output [Field F] (trace: (ℕ → F)) (circuit: Stateful F α) (a : α) : Prop :=
+--   let (_, ops, a') := circuit.run
+--   a = a' ∧ (constraints_hold_from_list trace ops)
 
 end Circuit
 
@@ -304,13 +325,12 @@ instance : Coe (Boolean (F p)) (Expression (F p)) where
 
 def spec (x: F p) := x = 0 ∨ x = 1
 
-theorem equiv : ∀ X: Expression (F p),
-  constraints_hold (assert_bool X) ↔ spec X.eval
+theorem equiv : ∀ x: F p,
+  constraints_hold (assert_bool (const x)) (fun _ => (0: F p)) ↔ spec x
 := by
   -- simplify
-  intro X
+  intro x
   simp [assert_bool, spec]
-  set x := X.eval
   show x = 0 ∨ x + -1 = 0 ↔ x = 0 ∨ x = 1
 
   -- proof
@@ -384,6 +404,23 @@ def Add8 (x y: Expression (F p)) : Stateful (F p) (Expression (F p)) := do
   assert_zero (x + y - z - carry * (const 256))
   return z
 
+namespace Add8
+def spec (x y z: F p) := z.val = (x.val + y.val) % 256
+
+theorem soundness : ∀ x y z : F p,
+  (∃ carry : F p, constraints_hold (Add8 (const x) (const y)) (fun i => if i=0 then z else carry))
+  → spec x y z
+:= by
+  intro x y z
+  rintro ⟨ carry, constraints ⟩
+  simp [Add8, assert_bool, byte_lookup, Context.empty] at constraints
+
+
+
+
+  sorry
+end Add8
+
 def Main (x y : F p) : Stateful (F p) Unit := do
   -- in a real AIR definition, these could be inputs to every step
   let x ← create_input x 0
@@ -393,9 +430,7 @@ def Main (x y : F p) : Stateful (F p) Unit := do
   x.set_next y
   y.set_next z
 
-theorem prime_1009 : Nat.Prime 1009 := by
-  -- isn't there a more efficient way to prove primalitity?
-  set_option maxRecDepth 900 in decide
+
 
 #eval
   let p := 1009
@@ -403,6 +438,6 @@ theorem prime_1009 : Nat.Prime 1009 := by
   let p_non_zero := Fact.mk (by norm_num : p ≠ 0)
   let p_large_enough := Fact.mk (by norm_num : p > 512)
   let main := Main (x := (20 : F p)) (y := 30)
-  let (_, ops) := main.run
+  let (_, ops, _) := main.run
   ops
 end
