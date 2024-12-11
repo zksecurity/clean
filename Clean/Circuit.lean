@@ -118,15 +118,32 @@ namespace Context
 def empty (offset: ℕ) : Context F := ⟨ offset, #[] , #[] , #[] , #[] ⟩
 end Context
 
-variable {α : Type}
+variable {α : Type} [Field F]
 
-inductive Operation (F : Type) where
+inductive PreOperation (F : Type) [Field F] where
+  | Witness : (compute : Unit → F) → PreOperation F
+  | Assert : Expression F → PreOperation F
+  | Lookup : Lookup F → PreOperation F
+  | Assign : Cell F × Variable F → PreOperation F
+
+def constraints_hold' (trace: ℕ → F) : List (PreOperation F) → Prop
+  | [] => True
+  | op :: ops => match op with
+    | PreOperation.Assert e => ((e.eval_from_trace trace) = 0) ∧ constraints_hold' trace ops
+    | _ => constraints_hold' trace ops
+
+-- this type models a subcircuit: a list of operations that imply a certain spec for all traces that satisfy the constraints
+structure SpecImplied (F: Type) [Field F] where
+  ops: List (PreOperation F)
+  spec: Prop
+  imply_spec: ∀ trace : ℕ → F, (constraints_hold' trace ops) → spec
+
+inductive Operation (F : Type) [Field F] where
   | Witness : (compute : Unit → F) → Operation F
   | Assert : Expression F → Operation F
   | Lookup : Lookup F → Operation F
   | Assign : Cell F × Variable F → Operation F
-  | Circuit : Context F × List (Operation F) → Operation F
-
+  | Circuit : SpecImplied F → Operation F
 namespace Operation
 
 @[simp]
@@ -145,7 +162,8 @@ def toString [Repr F] : (op : Operation F) → String
   | Assert e => "(Assert " ++ reprStr e ++ " == 0)"
   | Lookup l => reprStr l
   | Assign (c, v) => "(Assign " ++ reprStr c ++ ", " ++ reprStr v ++ ")"
-  | Circuit ⟨ _, ops ⟩ => "(Circuit " ++ reprStr (go ops) ++ ")"
+  -- | Circuit ⟨ _, ops ⟩ => "(Circuit " ++ reprStr (go ops) ++ ")"
+  | Circuit _ => "Circuit"
 -- this helps lean recognize the structural recursion
 where go (ops : List (Operation F)) : List String :=
   match ops with
@@ -157,7 +175,7 @@ instance [Repr F] : ToString (Operation F) where
 end Operation
 
 @[simp]
-def Stateful (F : Type) (α : Type) := Context F → (Context F × List (Operation F)) × α
+def Stateful (F : Type)  [Field F] (α : Type) := Context F → (Context F × List (Operation F)) × α
 
 instance : Monad (Stateful F) where
   pure a ctx := ((ctx, []), a)
@@ -177,6 +195,16 @@ def as_stateful (f: Context F → Operation F × α) : Stateful F α := fun ctx 
   let (op, a) := f ctx
   let ctx' := Operation.run ctx op
   (⟨ ctx', [op] ⟩, a)
+
+def to_flat_operations [Field F] (ops: List (Operation F)) : List (PreOperation F) :=
+  match ops with
+  | [] => []
+  | op :: ops => match op with
+    | Operation.Witness compute => PreOperation.Witness compute :: to_flat_operations ops
+    | Operation.Assert e => PreOperation.Assert e :: to_flat_operations ops
+    | Operation.Lookup l => PreOperation.Lookup l :: to_flat_operations ops
+    | Operation.Assign (c, v) => PreOperation.Assign (c, v) :: to_flat_operations ops
+    | Operation.Circuit ⟨ ops', _, _ ⟩ => ops' ++ to_flat_operations ops
 
 -- operations we can do in a circuit
 
@@ -208,15 +236,6 @@ def lookup (l: Lookup F) := as_stateful (
 @[simp]
 def assign_cell (c: Cell F) (v: Variable F) := as_stateful (
   fun _ => (Operation.Assign (c, v), ())
-)
-
--- run a sub-circuit
-@[simp]
-def subcircuit (circuit: Stateful F α) := as_stateful (
-  fun ctx =>
-    let subctx := Context.empty ctx.offset
-    let (state, a) := circuit subctx
-    (Operation.Circuit state, a)
 )
 
 -- TODO derived operations: assert(lhs == rhs), <== (witness + assert)
@@ -253,25 +272,31 @@ inductive NestedList (α : Type) :=
   | list : List (NestedList α) → NestedList α
 deriving Repr
 
+def constraints' : List (PreOperation F) → List (NestedList (Expression F))
+  | [] => []
+  | op :: ops => match op with
+    | PreOperation.Assert e => NestedList.scalar e :: constraints' ops
+    | _ => constraints' ops
+
 def constraints : List (Operation F) →  List (NestedList (Expression F))
   | [] => []
   | op :: ops => match op with
     | Operation.Assert e => NestedList.scalar e :: constraints ops
-    | Operation.Circuit ⟨ _, ops' ⟩ => NestedList.list (constraints ops') :: constraints ops
+    | Operation.Circuit ⟨ ops', _, _ ⟩ => NestedList.list (constraints' ops') :: constraints ops
     | _ => constraints ops
 
 def witness_length (circuit : Stateful F α) : ℕ :=
   let (ctx, _, _) := circuit.run
   ctx.locals.size
 
-def constraint [Field F]  (f: F) : Prop := f = 0
+def constraint [Field F] (f: F) : Prop := f = 0
 
 @[simp]
 def constraints_hold_from_list [Field F] (trace: (ℕ → F)) : List (Operation F) → Prop
   | [] => True
   | op :: ops => match op with
     | Operation.Assert e => ((e.eval_from_trace trace) = 0) ∧ constraints_hold_from_list trace ops
-    | Operation.Circuit ⟨ _, ops' ⟩ => constraints_hold_from_list trace ops' ∧ constraints_hold_from_list trace ops
+    | Operation.Circuit ⟨ _, spec, _ ⟩ => spec ∧ constraints_hold_from_list trace ops
     | _ => constraints_hold_from_list trace ops
 
 @[simp]
@@ -280,7 +305,27 @@ def constraints_hold [Field F] (circuit: Stateful F α) (trace: (ℕ → F))  : 
   -- let trace i := if h : i < witness.length then witness.get ⟨i, h⟩ else 0
   constraints_hold_from_list trace ops
 
+-- goal: define circuit such that we can provably use it as subcircuit
+structure Circuit' (α β: Type) where
+  n: ℕ
+  main: α → Stateful F β
+  spec: Prop
+  -- TOOD
+  -- soundness: ∀ assumptions main, ,
+
+-- run a sub-circuit
+-- @[simp]
+-- def subcircuit (circuit: Stateful F α) (spec: Prop) () := as_stateful (
+--   fun ctx =>
+--     let subctx := Context.empty ctx.offset
+--     let ((ctx, ops), a) := circuit subctx
+--     let flat_ops := to_flat_operations ops
+
+--     (Operation.Circuit state, a)
+-- )
 end Circuit
+
+
 
 section -- examples
 open Circuit
@@ -404,7 +449,7 @@ def Add8 (x y: Expression (F p)) : Stateful (F p) (Expression (F p)) := do
   let z ← witness (fun () => mod_256 (x + y))
   byte_lookup z
   let carry ← witness (fun () => floordiv (x + y) 256)
-  subcircuit (assert_bool carry)
+  (assert_bool carry)
 
   assert_zero (x + y - z - carry * (const 256))
   return z
@@ -441,7 +486,7 @@ def Main (x y : F p) : Stateful (F p) Unit := do
   let x ← create_input x 0
   let y ← create_input y 1
 
-  let z ← subcircuit (Add8 x y)
+  let z ← (Add8 x y)
   x.set_next y
   y.set_next z
 
