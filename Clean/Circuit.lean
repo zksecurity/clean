@@ -142,17 +142,17 @@ end PreOperation
 
 -- this type models a subcircuit: a list of operations that imply a certain spec,
 -- for all traces that satisfy the constraints
-structure SpecImplied (F: Type) [Field F] where
+structure SpecImplied (F: Type) [Field F] (spec: Prop) where
   ops: List (PreOperation F)
-  spec: Prop
   imply_spec: ∀ env, (PreOperation.constraints_hold env ops) → spec
+
 
 inductive Operation (F : Type) [Field F] where
   | Witness : (compute : Unit → F) → Operation F
   | Assert : Expression F → Operation F
   | Lookup : Lookup F → Operation F
   | Assign : Cell F × Variable F → Operation F
-  | Circuit : SpecImplied F → Operation F
+  | Circuit : (Σ (s : Prop), SpecImplied F s) → Operation F
 namespace Operation
 
 @[simp]
@@ -280,7 +280,7 @@ def constraints : List (Operation F) →  List (NestedList (Expression F))
   | [] => []
   | op :: ops => match op with
     | Operation.Assert e => NestedList.scalar e :: constraints ops
-    | Operation.Circuit ⟨ ops', _, _ ⟩ => NestedList.list (constraints' ops') :: constraints ops
+    | Operation.Circuit ⟨ _, ops', _⟩ => NestedList.list (constraints' ops') :: constraints ops
     | _ => constraints ops
 
 def witness_length (circuit : Stateful F α) : ℕ :=
@@ -293,11 +293,11 @@ namespace Adversarial
     | [] => True
     | op :: [] => match op with
       | Operation.Assert e => (e.eval_env env) = 0
-      | Operation.Circuit ⟨ _, spec, _ ⟩ => spec
+      | Operation.Circuit ⟨ spec, _ ⟩ => spec
       | _ => True
     | op :: ops => match op with
       | Operation.Assert e => ((e.eval_env env) = 0) ∧ constraints_hold_from_list env ops
-      | Operation.Circuit ⟨ _, spec, _ ⟩ => spec ∧ constraints_hold_from_list env ops
+      | Operation.Circuit ⟨ spec, _ ⟩ => spec ∧ constraints_hold_from_list env ops
       | _ => constraints_hold_from_list env ops
 
   @[simp]
@@ -313,7 +313,7 @@ namespace Adversarial
     | Operation.Assert e => PreOperation.Assert e :: to_flat_operations ops
     | Operation.Lookup l => PreOperation.Lookup l :: to_flat_operations ops
     | Operation.Assign (c, v) => PreOperation.Assign (c, v) :: to_flat_operations ops
-    | Operation.Circuit ⟨ ops', _, _ ⟩ => ops' ++ to_flat_operations ops
+    | Operation.Circuit ⟨ _, ops', _ ⟩ => ops' ++ to_flat_operations ops
 
   -- TODO super painful, mainly because `cases` doesn't allow rich patterns -- how does this work again?
   theorem can_flatten_first : ∀ (env: ℕ → F) (ops: List (Operation F)),
@@ -358,11 +358,11 @@ def constraints_hold_from_list [Field F] : List (Operation F) → Prop
   | [] => True
   | op :: [] => match op with
     | Operation.Assert e => e.eval = 0
-    | Operation.Circuit ⟨ _, spec, _ ⟩ => spec
+    | Operation.Circuit ⟨ spec, _ ⟩ => spec
     | _ => True
   | op :: ops => match op with
     | Operation.Assert e => (e.eval = 0) ∧ constraints_hold_from_list ops
-    | Operation.Circuit ⟨ _, spec, _ ⟩ => spec ∧ constraints_hold_from_list ops
+    | Operation.Circuit ⟨ spec, _, _ ⟩ => spec ∧ constraints_hold_from_list ops
     | _ => constraints_hold_from_list ops
 
 @[simp]
@@ -416,7 +416,9 @@ where
   spec: β_value → α_value → Prop
 
   soundness: open ProvableType in
-    ∀ b : β_value, let b_var := const F b
+    ∀ b : β_value,
+    ∀ b_var : β_var,
+    eval F b_var = b →
     assumptions b →
     ∀ a : α_value,
     (∃ env,
@@ -428,12 +430,16 @@ where
     ∀ b : β_value, assumptions b →
     constraints_hold (main (const F b))
 
+def subcircuit_spec (circuit: FormalCircuit F α_var α_value β_var β_value) (b_var : β_var) :=
+  ∀ b : β_value,
+  ProvableType.eval F b_var = b →
+  circuit.assumptions b →
+  ∃ a : α_value, circuit.spec b a
+
 def formal_circuit_is_subcircuit
-  (circuit: FormalCircuit F α_var α_value β_var β_value) (b : β_value)
-  (assumptions: circuit.assumptions (F:=F) b) :
-  Circuit.SpecImplied F :=
+  (circuit: FormalCircuit F α_var α_value β_var β_value) (b_var : β_var) :
+    SpecImplied F (subcircuit_spec circuit b_var) × α_var :=
   open ProvableType in
-  let b_var := const F b
   let main := circuit.main b_var
   let res := main Context.empty
   -- TODO: weirdly, when we destructure we can't deduce origin of the results anymore
@@ -442,37 +448,36 @@ def formal_circuit_is_subcircuit
   let a_var := res.2
 
   let flat_ops := Adversarial.to_flat_operations ops
-  let spec := ∃ a : α_value, circuit.spec b a
-  by
-  use flat_ops
-  use spec
-  intro env h_holds
-  dsimp [spec]
-  let a: α_value := eval_env env a_var
-  use a
 
-  suffices h: Adversarial.constraints_hold env main from
-    have ha : eval_env env (output main) = a := by
-      dsimp [a, output, a_var, res]
-    circuit.soundness b assumptions a ⟨ env, ⟨ h, ha ⟩ ⟩
+  have s: SpecImplied F (subcircuit_spec circuit b_var) := by
+    use flat_ops
 
-  guard_hyp h_holds : PreOperation.constraints_hold env (Adversarial.to_flat_operations ops)
+    intro env h_holds
+    let a: α_value := eval_env env a_var
+    intro b hb assumptions
+    use a
 
-  show Adversarial.constraints_hold_from_list env ops
-  exact Adversarial.can_flatten_first env ops h_holds
+    suffices h: Adversarial.constraints_hold env main from
+      have ha : eval_env env (output main) = a := by
+        dsimp [a, output, a_var, res]
+      circuit.soundness b b_var hb assumptions a ⟨ env, ⟨ h, ha ⟩ ⟩
+
+    guard_hyp h_holds : PreOperation.constraints_hold env (Adversarial.to_flat_operations ops)
+
+    show Adversarial.constraints_hold_from_list env ops
+    exact Adversarial.can_flatten_first env ops h_holds
+
+  (s, a_var)
 
 -- run a sub-circuit
--- @[simp]
--- def subcircuit (circuit: Stateful F α) (spec: Prop) () := as_stateful (
---   fun ctx =>
---     let subctx := Context.empty ctx.offset
---     let ((ctx, ops), a) := circuit subctx
---     let flat_ops := to_flat_operations ops
-
---     (Operation.Circuit state, a)
--- )
+@[simp]
+def subcircuit (circuit: FormalCircuit F α_var α_value β_var β_value) (b: β_var) := as_stateful (
+  fun _ =>
+    let spec := subcircuit_spec circuit b
+    let (subcircuit, a) := formal_circuit_is_subcircuit circuit b
+    (Operation.Circuit ⟨ spec, subcircuit ⟩ , a)
+)
 end Circuit
-
 
 
 section -- examples
