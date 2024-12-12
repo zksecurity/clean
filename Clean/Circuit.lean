@@ -204,16 +204,6 @@ def as_stateful (f: Context F → Operation F × α) : Stateful F α := fun ctx 
   let ctx' := Operation.run ctx op
   ((ctx', [op]), a)
 
-def to_flat_operations [Field F] (ops: List (Operation F)) : List (PreOperation F) :=
-  match ops with
-  | [] => []
-  | op :: ops => match op with
-    | Operation.Witness compute => PreOperation.Witness compute :: to_flat_operations ops
-    | Operation.Assert e => PreOperation.Assert e :: to_flat_operations ops
-    | Operation.Lookup l => PreOperation.Lookup l :: to_flat_operations ops
-    | Operation.Assign (c, v) => PreOperation.Assign (c, v) :: to_flat_operations ops
-    | Operation.Circuit ⟨ ops', _, _ ⟩ => ops' ++ to_flat_operations ops
-
 -- operations we can do in a circuit
 
 -- create a new variable
@@ -301,6 +291,10 @@ namespace Adversarial
   @[simp]
   def constraints_hold_from_list [Field F] (env: (ℕ → F)) : List (Operation F) → Prop
     | [] => True
+    | op :: [] => match op with
+      | Operation.Assert e => (e.eval_env env) = 0
+      | Operation.Circuit ⟨ _, spec, _ ⟩ => spec
+      | _ => True
     | op :: ops => match op with
       | Operation.Assert e => ((e.eval_env env) = 0) ∧ constraints_hold_from_list env ops
       | Operation.Circuit ⟨ _, spec, _ ⟩ => spec ∧ constraints_hold_from_list env ops
@@ -310,6 +304,53 @@ namespace Adversarial
   def constraints_hold [Field F] (env: (ℕ → F)) (circuit: Stateful F α)   : Prop :=
     let (_, ops, _) := circuit.run
     constraints_hold_from_list env ops
+
+  def to_flat_operations [Field F] (ops: List (Operation F)) : List (PreOperation F) :=
+  match ops with
+  | [] => []
+  | op :: ops => match op with
+    | Operation.Witness compute => PreOperation.Witness compute :: to_flat_operations ops
+    | Operation.Assert e => PreOperation.Assert e :: to_flat_operations ops
+    | Operation.Lookup l => PreOperation.Lookup l :: to_flat_operations ops
+    | Operation.Assign (c, v) => PreOperation.Assign (c, v) :: to_flat_operations ops
+    | Operation.Circuit ⟨ ops', _, _ ⟩ => ops' ++ to_flat_operations ops
+
+  -- TODO super painful, mainly because `cases` doesn't allow rich patterns -- how does this work again?
+  theorem can_flatten_first : ∀ (env: ℕ → F) (ops: List (Operation F)),
+    PreOperation.constraints_hold env (to_flat_operations ops)
+    → constraints_hold_from_list env ops
+  := by
+    intro env ops
+    induction ops with
+    | nil => intro h; exact h
+    | cons op ops ih =>
+      cases ops with
+      | nil =>
+        simp at ih
+        cases op with
+        | Circuit c =>
+          sorry
+        | _ => simp [PreOperation.constraints_hold]
+      | cons op' ops' =>
+        let ops := op' :: ops'
+        cases op with
+        | Circuit c => sorry
+        | Assert e => sorry
+        | Witness c =>
+          have h_ops : to_flat_operations (Operation.Witness c :: op' :: ops') = PreOperation.Witness c :: to_flat_operations (op' :: ops') := rfl
+          rw [h_ops]
+          intro h_pre
+          have h1 : PreOperation.constraints_hold env (to_flat_operations (op' :: ops')) := by
+            rw [PreOperation.constraints_hold] at h_pre
+            · exact h_pre
+            · sorry
+            · simp
+          have ih1 := ih h1
+          simp [ih1]
+        | Lookup l => sorry
+        | Assign a => sorry
+
+
 end Adversarial
 
 @[simp]
@@ -344,38 +385,40 @@ class ProvableType (F: Type) (α_var : Type) (α_value : Type) where
   to_values : α_value → Vector F size
   from_values : Vector F size → α_value
 
-variable {α_var α_value β_var β_value: Type}
+variable {α_var α_value β_var β_value: Type} [ProvableType F α_var α_value] [ProvableType F β_var β_value]
 
 namespace ProvableType
-def eval [ProvableType F α_var α_value] (x: α_var) : α_value :=
+def eval (F: Type) [Field F] [ProvableType F α_var α_value] (x: α_var) : α_value :=
   let n := ProvableType.size F α_var α_value
   let vars : Vector (Expression F) n := ProvableType.to_vars x
   let values := vars.map (fun v => v.eval)
   ProvableType.from_values values
 
-def eval_env [ProvableType F α_var α_value] (env: ℕ → F) (x: α_var) : α_value :=
+def eval_env (env: ℕ → F) (x: α_var) : α_value :=
   let n := ProvableType.size F α_var α_value
   let vars : Vector (Expression F) n := ProvableType.to_vars x
   let values := vars.map (fun v => v.eval_env env)
   ProvableType.from_values values
 
-def const [ProvableType F α_var α_value] (x: α_value) : α_var :=
+def const (F: Type) [ProvableType F α_var α_value] (x: α_value) : α_var :=
   let n := ProvableType.size F α_var α_value
   let values : Vector F n := ProvableType.to_values x
   ProvableType.from_vars (values.map (fun v => Expression.const v))
 end ProvableType
 
 -- goal: define circuit such that we can provably use it as subcircuit
-structure FormalCircuit [ProvableType F α_var α_value] [ProvableType F β_var β_value] where
+structure FormalCircuit (F α_var α_value β_var β_value: Type)
+  [Field F] [ProvableType F α_var α_value] [ProvableType F β_var β_value]
+where
   main: β_var → Stateful F α_var
 
   assumptions: β_value → Prop
   spec: β_value → α_value → Prop
 
   soundness: open ProvableType in
-    ∀ b : β_value, let b_var: β_var := const (F:=F) b
+    ∀ b : β_value, let b_var := const F b
     assumptions b →
-    ∃ a : α_value,
+    ∀ a : α_value,
     (∃ env,
       Adversarial.constraints_hold env (main b_var)
       ∧ (eval_env env (output (main b_var)) = a))
@@ -383,20 +426,40 @@ structure FormalCircuit [ProvableType F α_var α_value] [ProvableType F β_var 
 
   completeness: open ProvableType in
     ∀ b : β_value, assumptions b →
-    constraints_hold (main (const (F:=F) b))
+    constraints_hold (main (const F b))
 
+def formal_circuit_is_subcircuit
+  (circuit: FormalCircuit F α_var α_value β_var β_value) (b : β_value)
+  (assumptions: circuit.assumptions (F:=F) b) :
+  Circuit.SpecImplied F :=
+  open ProvableType in
+  let b_var := const F b
+  let main := circuit.main b_var
+  let res := main Context.empty
+  -- TODO: weirdly, when we destructure we can't deduce origin of the results anymore
+  -- let ((_, ops), a_var) := res
+  let ops := res.1.2
+  let a_var := res.2
 
--- def formal_circuit_is_subcircuit
---   (circuit: FormalCircuit (F := F) β α) (b : β) (assumptions: circuit.assumptions b) :
---   Circuit.SpecImplied F :=
---   let main := circuit.main b
---   let ((ctx, ops), a) := main Context.empty
---   let ops := main.run
---   let spec := circuit.spec b
---   let soundness := circuit.soundness b
---   let completeness := circuit.completeness b
+  let flat_ops := Adversarial.to_flat_operations ops
+  let spec := ∃ a : α_value, circuit.spec b a
+  by
+  use flat_ops
+  use spec
+  intro env h_holds
+  dsimp [spec]
+  let a: α_value := eval_env env a_var
+  use a
 
---   ⟨ to_flat_operations, spec, fun env ops => soundness assumptions env ops ⟩
+  suffices h: Adversarial.constraints_hold env main from
+    have ha : eval_env env (output main) = a := by
+      dsimp [a, output, a_var, res]
+    circuit.soundness b assumptions a ⟨ env, ⟨ h, ha ⟩ ⟩
+
+  guard_hyp h_holds : PreOperation.constraints_hold env (Adversarial.to_flat_operations ops)
+
+  show Adversarial.constraints_hold_from_list env ops
+  exact Adversarial.can_flatten_first env ops h_holds
 
 -- run a sub-circuit
 -- @[simp]
