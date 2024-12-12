@@ -108,14 +108,11 @@ deriving Repr
 structure Context (F : Type) where
   offset: ℕ
   locals: Array (Variable F)
-  constraints: Array (Expression F)
-  lookups: Array (Lookup F)
-  assignments: Array (Cell F × Variable F)
 deriving Repr
 
 namespace Context
 @[simp]
-def empty (offset: ℕ) : Context F := ⟨ offset, #[] , #[] , #[] , #[] ⟩
+def empty : Context F := ⟨ 0, #[] ⟩
 end Context
 
 variable {α : Type} [Field F]
@@ -152,9 +149,9 @@ def run (ctx: Context F) : Operation F → Context F
     let var := ⟨ ctx.offset, compute ⟩
     let offset := ctx.offset + 1
     { ctx with offset, locals := ctx.locals.push var }
-  | Assert e => { ctx with constraints := ctx.constraints.push e }
-  | Lookup l => { ctx with lookups := ctx.lookups.push l }
-  | Assign (c, v) => { ctx with assignments := ctx.assignments.push (c, v) }
+  | Assert _ => ctx
+  | Lookup _ => ctx
+  | Assign _ => ctx
   | Circuit _ => ctx
 
 def toString [Repr F] : (op : Operation F) → String
@@ -185,16 +182,15 @@ instance : Monad (Stateful F) where
     ((ctx'', ops ++ ops'), b)
 
 @[simp]
-def Stateful.run (circuit: Stateful F α) (offset: ℕ := 0) : Context F × List (Operation F) × α :=
-  let ctx := Context.empty offset
-  let ((ctx, ops), a ) := circuit ctx
+def Stateful.run (circuit: Stateful F α) : Context F × List (Operation F) × α :=
+  let ((ctx, ops), a) := circuit Context.empty
   (ctx, ops, a)
 
 @[simp]
 def as_stateful (f: Context F → Operation F × α) : Stateful F α := fun ctx  =>
   let (op, a) := f ctx
   let ctx' := Operation.run ctx op
-  (⟨ ctx', [op] ⟩, a)
+  ((ctx', [op]), a)
 
 def to_flat_operations [Field F] (ops: List (Operation F)) : List (PreOperation F) :=
   match ops with
@@ -311,7 +307,7 @@ end WithTrace
 def constraints_hold_from_list [Field F] : List (Operation F) → Prop
   | [] => True
   | op :: [] => match op with
-    | Operation.Assert e => (e.eval = 0)
+    | Operation.Assert e => e.eval = 0
     | Operation.Circuit ⟨ _, spec, _ ⟩ => spec
     | _ => True
   | op :: ops => match op with
@@ -320,7 +316,7 @@ def constraints_hold_from_list [Field F] : List (Operation F) → Prop
     | _ => constraints_hold_from_list ops
 
 @[simp]
-def constraints_hold [Field F] (circuit: Stateful F α)  : Prop :=
+def constraints_hold [Field F] (circuit: Stateful F α) : Prop :=
   let (_, ops, _) := circuit.run
   constraints_hold_from_list ops
 
@@ -494,7 +490,7 @@ def Add8 (x y: Expression (F p)) (z carry: Option (F p) := none) := do
   let z ← witness_or_value z (fun () => mod_256 (x + y))
   byte_lookup z
   let carry ← witness_or_value carry (fun () => floordiv (x + y) 256)
-  (assert_bool carry)
+  assert_bool carry
 
   assert_zero (x + y - z - carry * (const 256))
   return z
@@ -502,12 +498,10 @@ def Add8 (x y: Expression (F p)) (z carry: Option (F p) := none) := do
 namespace Add8
 def spec (x y z: F p) := z.val = (x.val + y.val) % 256
 
-theorem soundness : ∀ x y z : F p,
-  x.val < 256 → y.val < 256 → z.val < 256 →
-  (
-    (∃ carry : F p, constraints_hold (Add8 (const x) (const y) (some z) (some carry)))
-    → spec x y z
-  )
+theorem soundness : ∀ x y z : F p, -- inputs
+  x.val < 256 → y.val < 256 → z.val < 256 → -- assumptions
+  (∃ carry : F p, constraints_hold (Add8 (const x) (const y) (some z) (some carry))) -- circuit
+  → spec x y z
 := by
   -- simplify
   intro x y z hx hy hz ⟨carry, h⟩
