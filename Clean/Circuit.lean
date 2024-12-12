@@ -374,16 +374,20 @@ def output (circuit: Stateful F α) : α :=
   let (_, _, a) := circuit.run
   a
 
+structure TypePair where
+  var: Type
+  value: Type
+
 -- class of types that are composed of variables,
 -- and can be evaluated into something that is composed of field elements
-class ProvableType (F α_var α_value : Type) where
+class ProvableType (F: Type) (α: TypePair) where
   size : ℕ
 
-  to_vars : α_var → Vector (Expression F) size
-  from_vars : Vector (Expression F) size → α_var
+  to_vars : α.var → Vector (Expression F) size
+  from_vars : Vector (Expression F) size → α.var
 
-  to_values : α_value → Vector F size
-  from_values : Vector F size → α_value
+  to_values : α.value → Vector F size
+  from_values : Vector F size → α.value
 
 -- or is it better as a structure?
 structure ProvableType' (F : Type) where
@@ -398,81 +402,86 @@ structure ProvableType' (F : Type) where
   from_values : Vector F size → value
 
 -- or like this?
-def Provable (F: Type) := { α_var_value : Type × Type // ∃ α : Type, α = ProvableType F α_var_value.1 α_var_value.2 }
+def Provable' (F: Type) := { α : TypePair // ∃ p : Type, p = ProvableType F α }
 
-variable {α_var α_value β_var β_value: Type} [ProvableType F α_var α_value] [ProvableType F β_var β_value]
+variable {α β: TypePair} [ProvableType F α] [ProvableType F β]
 
-
-
-def Pair (T: Type) := T × T
-
-namespace ProvableType
-def eval (F: Type) [Field F] [ProvableType F α_var α_value] (x: α_var) : α_value :=
-  let n := ProvableType.size F α_var α_value
+namespace Provable
+def eval (F: Type) [Field F] [ProvableType F α] (x: α.var) : α.value :=
+  let n := ProvableType.size F α
   let vars : Vector (Expression F) n := ProvableType.to_vars x
   let values := vars.map (fun v => v.eval)
   ProvableType.from_values values
 
-def eval_env (env: ℕ → F) (x: α_var) : α_value :=
-  let n := ProvableType.size F α_var α_value
+def eval_env (env: ℕ → F) (x: α.var) : α.value :=
+  let n := ProvableType.size F α
   let vars : Vector (Expression F) n := ProvableType.to_vars x
   let values := vars.map (fun v => v.eval_env env)
   ProvableType.from_values values
 
-def const (F: Type) [ProvableType F α_var α_value] (x: α_value) : α_var :=
-  let n := ProvableType.size F α_var α_value
+def const (F: Type) [ProvableType F α] (x: α.value) : α.var :=
+  let n := ProvableType.size F α
   let values : Vector F n := ProvableType.to_values x
   ProvableType.from_vars (values.map (fun v => Expression.const v))
 
-instance Single : ProvableType F (Expression F) F where
+@[reducible]
+def field (F : Type) : TypePair := ⟨ Expression F, F ⟩
+
+instance : ProvableType F (field F) where
   size := 1
   to_vars x := vector [x]
   from_vars v := v.get ⟨ 0, by norm_num ⟩
   to_values x := vector [x]
   from_values v := v.get ⟨ 0, by norm_num ⟩
 
-instance Pair : ProvableType F (Pair (Expression F)) (Pair F) where
+@[reducible]
+def pair (α β : TypePair) : TypePair := ⟨ α.var × β.var, α.value × β.value ⟩
+
+@[reducible]
+def field2 (F : Type) : TypePair := pair (field F) (field F)
+
+instance : ProvableType F (field2 F) where
   size := 2
   to_vars pair := vector [pair.1, pair.2]
   from_vars v := (v.get ⟨ 0, by norm_num ⟩, v.get ⟨ 1, by norm_num ⟩)
   to_values pair :=vector [pair.1, pair.2]
   from_values v := (v.get ⟨ 0, by norm_num ⟩, v.get ⟨ 1, by norm_num ⟩)
-end ProvableType
+end Provable
 
 -- goal: define circuit such that we can provably use it as subcircuit
-structure FormalCircuit (F α_var α_value β_var β_value: Type)
-  [Field F] [ProvableType F α_var α_value] [ProvableType F β_var β_value]
+structure FormalCircuit (F: Type) (β α: TypePair)
+  [Field F] [ProvableType F α] [ProvableType F β]
 where
-  main: β_var → Stateful F α_var
+  main: β.var → Stateful F α.var
 
-  assumptions: β_value → Prop
-  spec: β_value → α_value → Prop
+  assumptions: β.value → Prop
+  spec: β.value → α.value → Prop
 
-  soundness: open ProvableType in
-    ∀ b : β_value,
-    ∀ b_var : β_var,
+  soundness: open Provable in
+    ∀ b : β.value,
+    ∀ b_var : β.var,
     eval F b_var = b →
     assumptions b →
-    ∀ a : α_value,
+    ∀ a : α.value,
     (∃ env,
       Adversarial.constraints_hold env (main b_var)
       ∧ (eval_env env (output (main b_var)) = a))
     → spec b a
 
-  completeness: open ProvableType in
-    ∀ b : β_value, assumptions b →
+  completeness: open Provable in
+    ∀ b : β.value, assumptions b →
     constraints_hold (main (const F b))
 
-def subcircuit_spec (circuit: FormalCircuit F α_var α_value β_var β_value) (b_var : β_var) :=
-  ∀ b : β_value,
-  ProvableType.eval F b_var = b →
+def subcircuit_spec (circuit: FormalCircuit F β α) (b_var : β.var) :=
+  ∀ b : β.value,
+  Provable.eval F b_var = b →
   circuit.assumptions b →
-  ∃ a : α_value, circuit.spec b a
+  ∃ a : α.value, circuit.spec b a
 
 def formal_circuit_is_subcircuit
-  (circuit: FormalCircuit F α_var α_value β_var β_value) (b_var : β_var) :
-    SpecImplied F (subcircuit_spec circuit b_var) × α_var :=
-  open ProvableType in
+  (circuit: FormalCircuit F β α) (b_var : β.var) :
+    SpecImplied F (subcircuit_spec circuit b_var) × α.var :=
+  open Provable in
   let main := circuit.main b_var
   let res := main Context.empty
   -- TODO: weirdly, when we destructure we can't deduce origin of the results anymore
@@ -486,7 +495,7 @@ def formal_circuit_is_subcircuit
     use flat_ops
 
     intro env h_holds
-    let a: α_value := eval_env env a_var
+    let a: α.value := eval_env env a_var
     intro b hb assumptions
     use a
 
@@ -504,11 +513,11 @@ def formal_circuit_is_subcircuit
 
 -- run a sub-circuit
 @[simp]
-def subcircuit (circuit: FormalCircuit F α_var α_value β_var β_value) (b: β_var) := as_stateful (
+def subcircuit (circuit: FormalCircuit F β α) (b: β.var) := as_stateful (
   fun _ =>
     let spec := subcircuit_spec circuit b
     let (subcircuit, a) := formal_circuit_is_subcircuit circuit b
-    (Operation.Circuit ⟨ spec, subcircuit ⟩ , a)
+    (Operation.Circuit ⟨ spec, subcircuit ⟩, a)
 )
 end Circuit
 
@@ -657,23 +666,7 @@ def witness_or_value (value: Option (F p)) (compute: Unit → F p) := do
 
 variable [Fact (p ≠ 0)]
 
-def Add8' : FormalCircuit (F p) (Expression (F p)) (F p) (Pair (Expression (F p))) (Pair (F p))  where
-  main (xy) := do
-    let (x, y) := xy
-    let z ← witness (fun () => mod_256 (x + y))
-    byte_lookup z
-    let carry ← witness (fun () => floordiv (x + y) 256)
-    assert_bool carry
-
-    assert_zero (x + y - z - carry * (const 256))
-    return z
-
-  assumptions (xy) := xy.1.val < 256 ∧ xy.2.val < 256
-  spec (xy) (z) := (z.val < 256) → z.val = (xy.1.val + xy.2.val) % 256
-
-  soundness := sorry
-  completeness := sorry
-
+open Provable (field field2)
 
 def Add8 (x y: Expression (F p)) (z carry: Option (F p) := none) := do
   let z ← witness_or_value z (fun () => mod_256 (x + y))
@@ -683,6 +676,31 @@ def Add8 (x y: Expression (F p)) (z carry: Option (F p) := none) := do
 
   assert_zero (x + y - z - carry * (const 256))
   return z
+
+def Add8' (xy : Expression (F p) × Expression (F p)) := do
+    let (x, y) := xy
+    let z ← witness (fun () => mod_256 (x + y))
+    byte_lookup z
+    let carry ← witness (fun () => floordiv (x + y) 256)
+    assert_bool carry
+
+    assert_zero (x + y - z - carry * (const 256))
+    return z
+
+namespace Add8'
+def assumptions (xy : F p × F p) := let (x, y) := xy
+  x.val < 256 ∧ y.val < 256
+
+def spec (xy : F p × F p) (z: F p) := let (x, y) := xy
+  (z.val < 256) → z.val = (x.val + y.val) % 256
+
+def circuit : FormalCircuit (F p) (field2 (F p)) (field (F p)) where
+  main := Add8'
+  assumptions := assumptions
+  spec := spec
+  soundness := sorry
+  completeness := sorry
+end Add8'
 
 namespace Add8
 def spec (x y z: F p) := (z.val < 256) → z.val = (x.val + y.val) % 256
