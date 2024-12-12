@@ -376,7 +376,7 @@ def output (circuit: Stateful F α) : α :=
 
 -- class of types that are composed of variables,
 -- and can be evaluated into something that is composed of field elements
-class ProvableType (F: Type) (α_var : Type) (α_value : Type) where
+class ProvableType (F α_var α_value : Type) where
   size : ℕ
 
   to_vars : α_var → Vector (Expression F) size
@@ -385,7 +385,26 @@ class ProvableType (F: Type) (α_var : Type) (α_value : Type) where
   to_values : α_value → Vector F size
   from_values : Vector F size → α_value
 
+-- or is it better as a structure?
+structure ProvableType' (F : Type) where
+  var: Type
+  value: Type
+  size : ℕ
+
+  to_vars : var → Vector (Expression F) size
+  from_vars : Vector (Expression F) size → var
+
+  to_values : value → Vector F size
+  from_values : Vector F size → value
+
+-- or like this?
+def Provable (F: Type) := { α_var_value : Type × Type // ∃ α : Type, α = ProvableType F α_var_value.1 α_var_value.2 }
+
 variable {α_var α_value β_var β_value: Type} [ProvableType F α_var α_value] [ProvableType F β_var β_value]
+
+
+
+def Pair (T: Type) := T × T
 
 namespace ProvableType
 def eval (F: Type) [Field F] [ProvableType F α_var α_value] (x: α_var) : α_value :=
@@ -404,6 +423,20 @@ def const (F: Type) [ProvableType F α_var α_value] (x: α_value) : α_var :=
   let n := ProvableType.size F α_var α_value
   let values : Vector F n := ProvableType.to_values x
   ProvableType.from_vars (values.map (fun v => Expression.const v))
+
+instance Single : ProvableType F (Expression F) F where
+  size := 1
+  to_vars x := vector [x]
+  from_vars v := v.get ⟨ 0, by norm_num ⟩
+  to_values x := vector [x]
+  from_values v := v.get ⟨ 0, by norm_num ⟩
+
+instance Pair : ProvableType F (Pair (Expression F)) (Pair F) where
+  size := 2
+  to_vars pair := vector [pair.1, pair.2]
+  from_vars v := (v.get ⟨ 0, by norm_num ⟩, v.get ⟨ 1, by norm_num ⟩)
+  to_values pair :=vector [pair.1, pair.2]
+  from_values v := (v.get ⟨ 0, by norm_num ⟩, v.get ⟨ 1, by norm_num ⟩)
 end ProvableType
 
 -- goal: define circuit such that we can provably use it as subcircuit
@@ -623,6 +656,24 @@ def witness_or_value (value: Option (F p)) (compute: Unit → F p) := do
   return Expression.var var
 
 variable [Fact (p ≠ 0)]
+
+def Add8' : FormalCircuit (F p) (Expression (F p)) (F p) (Pair (Expression (F p))) (Pair (F p))  where
+  main (xy) := do
+    let (x, y) := xy
+    let z ← witness (fun () => mod_256 (x + y))
+    byte_lookup z
+    let carry ← witness (fun () => floordiv (x + y) 256)
+    assert_bool carry
+
+    assert_zero (x + y - z - carry * (const 256))
+    return z
+
+  assumptions (xy) := xy.1.val < 256 ∧ xy.2.val < 256
+  spec (xy) (z) := (z.val < 256) → z.val = (xy.1.val + xy.2.val) % 256
+
+  soundness := sorry
+  completeness := sorry
+
 
 def Add8 (x y: Expression (F p)) (z carry: Option (F p) := none) := do
   let z ← witness_or_value z (fun () => mod_256 (x + y))
