@@ -466,11 +466,11 @@ theorem soundness : ∀ x y z : F p,
 := by
   -- simplify
   intro x y z hx hy hz ⟨carry, h⟩
-  -- simplify our custom circuits first, then the rest (directly doesn't work :/)
-  -- simp [Add8, assert_bool, byte_lookup] at h
-  dsimp [Add8, assert_bool, byte_lookup] at h
-  simp at h
+  simp [Add8, assert_bool, byte_lookup] at h
   simp [spec]
+
+  guard_hyp h: (carry = 0 ∨ carry + -1 = 0) ∧ (x + y + -z + -(carry * 256) = 0)
+  show z.val = (x.val + y.val) % 256
 
   -- proof
   rcases h with ⟨h_bool, h_add⟩
