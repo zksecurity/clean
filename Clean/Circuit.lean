@@ -446,6 +446,18 @@ instance : ProvableType F (field2 F) where
   from_vars v := (v.get ⟨ 0, by norm_num ⟩, v.get ⟨ 1, by norm_num ⟩)
   to_values pair :=vector [pair.1, pair.2]
   from_values v := (v.get ⟨ 0, by norm_num ⟩, v.get ⟨ 1, by norm_num ⟩)
+
+variable {n: ℕ}
+def vec (α: TypePair) (n: ℕ) : TypePair := ⟨ Vector α.var n, Vector α.value n ⟩
+
+def fields (F: Type) (n: ℕ) : TypePair := vec (field F) n
+
+instance : ProvableType F (fields F n) where
+  size := n
+  to_vars x := x
+  from_vars v := v
+  to_values x := x
+  from_values v := v
 end Provable
 
 -- goal: define circuit such that we can provably use it as subcircuit
@@ -666,9 +678,9 @@ def witness_or_value (value: Option (F p)) (compute: Unit → F p) := do
 
 variable [Fact (p ≠ 0)]
 
-open Provable (field field2)
+open Provable (field field2 fields)
 
-def Add8 (x y: Expression (F p)) (z carry: Option (F p) := none) := do
+def add8 (x y: Expression (F p)) (z carry: Option (F p) := none) := do
   let z ← witness_or_value z (fun () => mod_256 (x + y))
   byte_lookup z
   let carry ← witness_or_value carry (fun () => floordiv (x + y) 256)
@@ -677,30 +689,39 @@ def Add8 (x y: Expression (F p)) (z carry: Option (F p) := none) := do
   assert_zero (x + y - z - carry * (const 256))
   return z
 
-def Add8' (xy : Expression (F p) × Expression (F p)) := do
-    let (x, y) := xy
-    let z ← witness (fun () => mod_256 (x + y))
-    byte_lookup z
-    let carry ← witness (fun () => floordiv (x + y) 256)
-    assert_bool carry
+def add8_full (input : Vector (Expression (F p)) 3) := do
+  let ⟨ [x, y, carry_in], _ ⟩ := input
 
-    assert_zero (x + y - z - carry * (const 256))
-    return z
+  let z ← witness (fun () => mod_256 (x + y + carry_in))
+  byte_lookup z
 
-namespace Add8'
-def assumptions (xy : F p × F p) := let (x, y) := xy
-  x.val < 256 ∧ y.val < 256
+  let carry_out ← witness (fun () => floordiv (x + y + carry_in) 256)
+  assert_bool carry_out
 
-def spec (xy : F p × F p) (z: F p) := let (x, y) := xy
-  (z.val < 256) → z.val = (x.val + y.val) % 256
+  assert_zero (x + y + carry_in - z - carry_out * (const 256))
+  return z
 
-def circuit : FormalCircuit (F p) (field2 (F p)) (field (F p)) where
-  main := Add8'
+namespace Add8Full
+def assumptions (input : Vector (F p) 3) :=
+  let ⟨ [x, y, carry_in], _ ⟩ := input
+  x.val < 256 ∧ y.val < 256 ∧ (carry_in = 0 ∨ carry_in = 1)
+
+def spec (input : Vector (F p) 3) (z: F p) :=
+  let ⟨ [x, y, carry_in], _ ⟩ := input
+  (z.val < 256) → z.val = (x.val + y.val + carry_in.val) % 256
+
+def circuit : FormalCircuit (F p) (fields (F p) 3) (field (F p)) where
+  main := add8_full
   assumptions := assumptions
   spec := spec
   soundness := sorry
   completeness := sorry
-end Add8'
+end Add8Full
+
+def add8_wrapped (input : Vector (Expression (F p)) 2) := do
+  let ⟨ [x, y], _ ⟩ := input
+  let z ← subcircuit Add8Full.circuit (vector [x, y, const 0])
+  return z
 
 namespace Add8
 def spec (x y z: F p) := (z.val < 256) → z.val = (x.val + y.val) % 256
@@ -708,7 +729,7 @@ def spec (x y z: F p) := (z.val < 256) → z.val = (x.val + y.val) % 256
 theorem soundness : ∀ x y : F p, -- inputs/outputs
   x.val < 256 → y.val < 256 → -- assumptions
   ∀ z : F p, -- output
-  (∃ carry : F p, constraints_hold (Add8 (const x) (const y) (some z) (some carry))) -- circuit
+  (∃ carry : F p, constraints_hold (add8 (const x) (const y) (some z) (some carry))) -- circuit
   → spec x y z
 := by
   -- simplify
@@ -733,9 +754,11 @@ def Main (x y : F p) : Stateful (F p) Unit := do
   let x ← create_input x 0
   let y ← create_input y 1
 
-  let z ← Add8 x y
+  let z ← add8 x y
   x.set_next y
   y.set_next z
+
+
 
 #eval
   let p := 1009
