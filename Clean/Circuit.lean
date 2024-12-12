@@ -1,6 +1,8 @@
 import Mathlib.Algebra.Field.Basic
 import Mathlib.Data.ZMod.Basic
 import Clean.Utils.Primes
+import Clean.Utils.Vector
+
 namespace Circuit
 variable {F: Type}
 
@@ -27,12 +29,19 @@ def eval : Expression F → F
   | add x y => eval x + eval y
   | mul x y => eval x * eval y
 
+/--
+Evaluate expression given an external `environment` that determines the assignment
+of all variables.
+
+This is needed when we want to make statements about a circuit in the adversarial
+situation where the prover can assign anything to variables.
+-/
 @[simp]
-def eval_from_trace (trace: ℕ → F) : Expression F → F
-  | var v => trace v.index
+def eval_env (env: ℕ → F) : Expression F → F
+  | var v => env v.index
   | const c => c
-  | add x y => eval_from_trace trace x + eval_from_trace trace y
-  | mul x y => eval_from_trace trace x * eval_from_trace trace y
+  | add x y => eval_env env x + eval_env env y
+  | mul x y => eval_env env x * eval_env env y
 
 def toString [Repr F] : Expression F → String
   | var v => "x" ++ reprStr v.index
@@ -75,10 +84,7 @@ instance : HMul F (Expression F) (Expression F) where
   hMul := fun f e => mul f e
 end Expression
 
-def Row (F : Type) (n: ℕ) := { l: List F // l.length = n }
-def row (l: List F) : Row F l.length := ⟨ l, rfl ⟩
-
-instance [Repr F] {n: ℕ} : Repr (Row F n) where
+instance [Repr F] {n: ℕ} : Repr (Vector F n) where
   reprPrec l _ := repr l.val
 
 structure Table (F : Type) where
@@ -89,7 +95,7 @@ structure Table (F : Type) where
 
 structure Lookup (F : Type) where
   table: Table F
-  entry: Row (Expression F) table.arity
+  entry: Vector (Expression F) table.arity
   index: Unit → Fin table.length -- index of the entry
 
 instance [Repr F] : Repr (Lookup F) where
@@ -123,17 +129,23 @@ inductive PreOperation (F : Type) [Field F] where
   | Lookup : Lookup F → PreOperation F
   | Assign : Cell F × Variable F → PreOperation F
 
-def constraints_hold' (trace: ℕ → F) : List (PreOperation F) → Prop
+namespace PreOperation
+def constraints_hold (env: ℕ → F) : List (PreOperation F) → Prop
   | [] => True
+  | op :: [] => match op with
+    | PreOperation.Assert e => (e.eval_env env) = 0
+    | _ => True
   | op :: ops => match op with
-    | PreOperation.Assert e => ((e.eval_from_trace trace) = 0) ∧ constraints_hold' trace ops
-    | _ => constraints_hold' trace ops
+    | PreOperation.Assert e => ((e.eval_env env) = 0) ∧ constraints_hold env ops
+    | _ => constraints_hold env ops
+end PreOperation
 
--- this type models a subcircuit: a list of operations that imply a certain spec for all traces that satisfy the constraints
+-- this type models a subcircuit: a list of operations that imply a certain spec,
+-- for all traces that satisfy the constraints
 structure SpecImplied (F: Type) [Field F] where
   ops: List (PreOperation F)
   spec: Prop
-  imply_spec: ∀ trace : ℕ → F, (constraints_hold' trace ops) → spec
+  imply_spec: ∀ env, (PreOperation.constraints_hold env ops) → spec
 
 inductive Operation (F : Type) [Field F] where
   | Witness : (compute : Unit → F) → Operation F
@@ -172,7 +184,7 @@ instance [Repr F] : ToString (Operation F) where
 end Operation
 
 @[simp]
-def Stateful (F : Type)  [Field F] (α : Type) := Context F → (Context F × List (Operation F)) × α
+def Stateful (F : Type) [Field F] (α : Type) := Context F → (Context F × List (Operation F)) × α
 
 instance : Monad (Stateful F) where
   pure a ctx := ((ctx, []), a)
@@ -285,23 +297,20 @@ def witness_length (circuit : Stateful F α) : ℕ :=
   let (ctx, _, _) := circuit.run
   ctx.locals.size
 
-def constraint [Field F] (f: F) : Prop := f = 0
-
-namespace WithTrace
+namespace Adversarial
   @[simp]
-  def constraints_hold_from_list [Field F] (trace: (ℕ → F)) : List (Operation F) → Prop
+  def constraints_hold_from_list [Field F] (env: (ℕ → F)) : List (Operation F) → Prop
     | [] => True
     | op :: ops => match op with
-      | Operation.Assert e => ((e.eval_from_trace trace) = 0) ∧ constraints_hold_from_list trace ops
-      | Operation.Circuit ⟨ _, spec, _ ⟩ => spec ∧ constraints_hold_from_list trace ops
-      | _ => constraints_hold_from_list trace ops
+      | Operation.Assert e => ((e.eval_env env) = 0) ∧ constraints_hold_from_list env ops
+      | Operation.Circuit ⟨ _, spec, _ ⟩ => spec ∧ constraints_hold_from_list env ops
+      | _ => constraints_hold_from_list env ops
 
   @[simp]
-  def constraints_hold [Field F] (circuit: Stateful F α) (trace: (ℕ → F))  : Prop :=
+  def constraints_hold [Field F] (env: (ℕ → F)) (circuit: Stateful F α)   : Prop :=
     let (_, ops, _) := circuit.run
-    -- let trace i := if h : i < witness.length then witness.get ⟨i, h⟩ else 0
-    constraints_hold_from_list trace ops
-end WithTrace
+    constraints_hold_from_list env ops
+end Adversarial
 
 @[simp]
 def constraints_hold_from_list [Field F] : List (Operation F) → Prop
@@ -316,17 +325,78 @@ def constraints_hold_from_list [Field F] : List (Operation F) → Prop
     | _ => constraints_hold_from_list ops
 
 @[simp]
-def constraints_hold [Field F] (circuit: Stateful F α) : Prop :=
+def constraints_hold (circuit: Stateful F α) : Prop :=
   let (_, ops, _) := circuit.run
   constraints_hold_from_list ops
 
+def output (circuit: Stateful F α) : α :=
+  let (_, _, a) := circuit.run
+  a
+
+-- class of types that are composed of variables,
+-- and can be evaluated into something that is composed of field elements
+class ProvableType (F: Type) (α_var : Type) (α_value : Type) where
+  size : ℕ
+
+  to_vars : α_var → Vector (Expression F) size
+  from_vars : Vector (Expression F) size → α_var
+
+  to_values : α_value → Vector F size
+  from_values : Vector F size → α_value
+
+variable {α_var α_value β_var β_value: Type}
+
+namespace ProvableType
+def eval [ProvableType F α_var α_value] (x: α_var) : α_value :=
+  let n := ProvableType.size F α_var α_value
+  let vars : Vector (Expression F) n := ProvableType.to_vars x
+  let values := vars.map (fun v => v.eval)
+  ProvableType.from_values values
+
+def eval_env [ProvableType F α_var α_value] (env: ℕ → F) (x: α_var) : α_value :=
+  let n := ProvableType.size F α_var α_value
+  let vars : Vector (Expression F) n := ProvableType.to_vars x
+  let values := vars.map (fun v => v.eval_env env)
+  ProvableType.from_values values
+
+def const [ProvableType F α_var α_value] (x: α_value) : α_var :=
+  let n := ProvableType.size F α_var α_value
+  let values : Vector F n := ProvableType.to_values x
+  ProvableType.from_vars (values.map (fun v => Expression.const v))
+end ProvableType
+
 -- goal: define circuit such that we can provably use it as subcircuit
-structure Circuit' (α β: Type) where
-  n: ℕ
-  main: α → Stateful F β
-  spec: Prop
-  -- TOOD
-  -- soundness: ∀ assumptions main, ,
+structure FormalCircuit [ProvableType F α_var α_value] [ProvableType F β_var β_value] where
+  main: β_var → Stateful F α_var
+
+  assumptions: β_value → Prop
+  spec: β_value → α_value → Prop
+
+  soundness: open ProvableType in
+    ∀ b : β_value, let b_var: β_var := const (F:=F) b
+    assumptions b →
+    ∃ a : α_value,
+    (∃ env,
+      Adversarial.constraints_hold env (main b_var)
+      ∧ (eval_env env (output (main b_var)) = a))
+    → spec b a
+
+  completeness: open ProvableType in
+    ∀ b : β_value, assumptions b →
+    constraints_hold (main (const (F:=F) b))
+
+
+-- def formal_circuit_is_subcircuit
+--   (circuit: FormalCircuit (F := F) β α) (b : β) (assumptions: circuit.assumptions b) :
+--   Circuit.SpecImplied F :=
+--   let main := circuit.main b
+--   let ((ctx, ops), a) := main Context.empty
+--   let ops := main.run
+--   let spec := circuit.spec b
+--   let soundness := circuit.soundness b
+--   let completeness := circuit.completeness b
+
+--   ⟨ to_flat_operations, spec, fun env ops => soundness assumptions env ops ⟩
 
 -- run a sub-circuit
 -- @[simp]
@@ -432,11 +502,11 @@ def ByteTable : Table (F p) where
   name := "Bytes"
   length := 256
   arity := 1
-  row i := row [from_byte i]
+  row i := vector [from_byte i]
 
 def byte_lookup (x: Expression (F p)) := lookup {
   table := ByteTable
-  entry := row [x]
+  entry := vector [x]
   index := fun () =>
     let x := x.eval.val
     if h : (x < 256)
@@ -496,20 +566,21 @@ def Add8 (x y: Expression (F p)) (z carry: Option (F p) := none) := do
   return z
 
 namespace Add8
-def spec (x y z: F p) := z.val = (x.val + y.val) % 256
+def spec (x y z: F p) := (z.val < 256) → z.val = (x.val + y.val) % 256
 
-theorem soundness : ∀ x y z : F p, -- inputs
-  x.val < 256 → y.val < 256 → z.val < 256 → -- assumptions
+theorem soundness : ∀ x y : F p, -- inputs/outputs
+  x.val < 256 → y.val < 256 → -- assumptions
+  ∀ z : F p, -- output
   (∃ carry : F p, constraints_hold (Add8 (const x) (const y) (some z) (some carry))) -- circuit
   → spec x y z
 := by
   -- simplify
-  intro x y z hx hy hz ⟨carry, h⟩
+  intro x y hx hy z ⟨carry, h⟩
   dsimp at h
   dsimp [spec]
 
   guard_hyp h: (carry * (carry + -1 * 1) = 0) ∧ (x + y + -1 * z + -1 * (carry * 256) = 0)
-  show z.val = (x.val + y.val) % 256
+  show (z.val < 256) → z.val = (x.val + y.val) % 256
 
   -- proof
   rcases h with ⟨h_bool, h_add⟩
