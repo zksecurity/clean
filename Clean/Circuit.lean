@@ -291,19 +291,38 @@ def witness_length (circuit : Stateful F α) : ℕ :=
 
 def constraint [Field F] (f: F) : Prop := f = 0
 
-@[simp]
-def constraints_hold_from_list [Field F] (trace: (ℕ → F)) : List (Operation F) → Prop
-  | [] => True
-  | op :: ops => match op with
-    | Operation.Assert e => ((e.eval_from_trace trace) = 0) ∧ constraints_hold_from_list trace ops
-    | Operation.Circuit ⟨ _, spec, _ ⟩ => spec ∧ constraints_hold_from_list trace ops
-    | _ => constraints_hold_from_list trace ops
+namespace WithTrace
+  @[simp]
+  def constraints_hold_from_list [Field F] (trace: (ℕ → F)) : List (Operation F) → Prop
+    | [] => True
+    | op :: ops => match op with
+      | Operation.Assert e => ((e.eval_from_trace trace) = 0) ∧ constraints_hold_from_list trace ops
+      | Operation.Circuit ⟨ _, spec, _ ⟩ => spec ∧ constraints_hold_from_list trace ops
+      | _ => constraints_hold_from_list trace ops
+
+  @[simp]
+  def constraints_hold [Field F] (circuit: Stateful F α) (trace: (ℕ → F))  : Prop :=
+    let (_, ops, _) := circuit.run
+    -- let trace i := if h : i < witness.length then witness.get ⟨i, h⟩ else 0
+    constraints_hold_from_list trace ops
+end WithTrace
 
 @[simp]
-def constraints_hold [Field F] (circuit: Stateful F α) (trace: (ℕ → F))  : Prop :=
+def constraints_hold_from_list [Field F] : List (Operation F) → Prop
+  | [] => True
+  | op :: [] => match op with
+    | Operation.Assert e => (e.eval = 0)
+    | Operation.Circuit ⟨ _, spec, _ ⟩ => spec
+    | _ => True
+  | op :: ops => match op with
+    | Operation.Assert e => (e.eval = 0) ∧ constraints_hold_from_list ops
+    | Operation.Circuit ⟨ _, spec, _ ⟩ => spec ∧ constraints_hold_from_list ops
+    | _ => constraints_hold_from_list ops
+
+@[simp]
+def constraints_hold [Field F] (circuit: Stateful F α)  : Prop :=
   let (_, ops, _) := circuit.run
-  -- let trace i := if h : i < witness.length then witness.get ⟨i, h⟩ else 0
-  constraints_hold_from_list trace ops
+  constraints_hold_from_list ops
 
 -- goal: define circuit such that we can provably use it as subcircuit
 structure Circuit' (α β: Type) where
@@ -369,10 +388,12 @@ instance : Coe (Boolean (F p)) (Expression (F p)) where
 
 def spec (x: F p) := x = 0 ∨ x = 1
 
-theorem simp_equiv : ∀ x: F p,
-  x = 0 ∨ x + -1 = 0 ↔ x = 0 ∨ x = 1 :=
+theorem dsimp_equiv : ∀ x: F p,
+  x * (x + -1 * 1) = 0 ↔ x = 0 ∨ x = 1 :=
 by
   intro x
+  simp
+  show x = 0 ∨ x + -1 = 0 ↔ x = 0 ∨ x = 1
   suffices x + -1 = 0 ↔ x = 1 by tauto
   constructor
   · intro (h : x + -1 = 0)
@@ -385,15 +406,14 @@ by
     simp [h]
 
 theorem equiv : ∀ x: F p,
-  constraints_hold (assert_bool (const x)) (fun _ => (0: F p)) ↔ spec x
+  constraints_hold (assert_bool (const x)) ↔ spec x
 := by
   -- simplify
-  intro x
-  simp [assert_bool, spec, constraint]
-  show x = 0 ∨ x + -1 = 0 ↔ x = 0 ∨ x = 1
+  dsimp
+  show ∀ (x : F p), x * (x + -1 * 1) = 0 ↔ spec x
 
   -- proof
-  exact simp_equiv x
+  exact dsimp_equiv
 end Boolean
 
 
@@ -443,12 +463,37 @@ instance : Coe (Byte (F p)) (Expression (F p)) where
   coe x := x.var
 end Byte
 
+def witness_or_trace_var (trace: Option (ℕ → F p)) (compute : Unit → F p) := as_stateful (fun ctx =>
+  let i := ctx.offset
+    let compute' := fun () => match trace with
+    | none => compute ()
+    | some trace => trace i
+  let var: Variable (F p) := ⟨ i, compute' ⟩
+  (Operation.Witness compute', var)
+)
+def witness_or_value_var (value: Option (F p)) (compute : Unit → F p) := as_stateful (fun ctx =>
+  let i := ctx.offset
+    let compute' := fun () => match value with
+    | none => compute ()
+    | some v => v
+  let var: Variable (F p) := ⟨ i, compute' ⟩
+  (Operation.Witness compute', var)
+)
+
+def witness_or_trace (trace: Option (ℕ → F p)) (compute: Unit → F p) := do
+  let var ← witness_or_trace_var trace compute
+  return Expression.var var
+
+def witness_or_value (value: Option (F p)) (compute: Unit → F p) := do
+  let var ← witness_or_value_var value compute
+  return Expression.var var
+
 variable [Fact (p ≠ 0)]
 
-def Add8 (x y: Expression (F p)) : Stateful (F p) (Expression (F p)) := do
-  let z ← witness (fun () => mod_256 (x + y))
+def Add8 (x y: Expression (F p)) (z carry: Option (F p) := none) := do
+  let z ← witness_or_value z (fun () => mod_256 (x + y))
   byte_lookup z
-  let carry ← witness (fun () => floordiv (x + y) 256)
+  let carry ← witness_or_value carry (fun () => floordiv (x + y) 256)
   (assert_bool carry)
 
   assert_zero (x + y - z - carry * (const 256))
@@ -460,23 +505,23 @@ def spec (x y z: F p) := z.val = (x.val + y.val) % 256
 theorem soundness : ∀ x y z : F p,
   x.val < 256 → y.val < 256 → z.val < 256 →
   (
-    (∃ carry : F p, constraints_hold (Add8 (const x) (const y)) (fun i => if i=0 then z else carry))
+    (∃ carry : F p, constraints_hold (Add8 (const x) (const y) (some z) (some carry)))
     → spec x y z
   )
 := by
   -- simplify
   intro x y z hx hy hz ⟨carry, h⟩
-  simp [Add8, assert_bool, byte_lookup] at h
-  simp [spec]
+  dsimp at h
+  dsimp [spec]
 
-  guard_hyp h: (carry = 0 ∨ carry + -1 = 0) ∧ (x + y + -z + -(carry * 256) = 0)
+  guard_hyp h: (carry * (carry + -1 * 1) = 0) ∧ (x + y + -1 * z + -1 * (carry * 256) = 0)
   show z.val = (x.val + y.val) % 256
 
   -- proof
   rcases h with ⟨h_bool, h_add⟩
 
-  -- reuse Boolean.simp_equiv, the version of Boolean.equiv after simplifying
-  have spec_bool: carry = 0 ∨ carry = 1 := (Boolean.simp_equiv carry).mp h_bool
+  -- reuse Boolean.equiv
+  have spec_bool: carry = 0 ∨ carry = 1 := (Boolean.equiv carry).mp h_bool
 
   sorry
 end Add8
@@ -486,7 +531,7 @@ def Main (x y : F p) : Stateful (F p) Unit := do
   let x ← create_input x 0
   let y ← create_input y 1
 
-  let z ← (Add8 x y)
+  let z ← Add8 x y
   x.set_next y
   y.set_next z
 
