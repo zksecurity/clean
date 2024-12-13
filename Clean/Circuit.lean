@@ -414,7 +414,7 @@ structure ProvableType' (F : Type) where
 -- or like this?
 def Provable' (F: Type) := { α : TypePair // ∃ p : Type, p = ProvableType F α }
 
-variable {α β: TypePair} [ProvableType F α] [ProvableType F β]
+variable {α β γ: TypePair} [ProvableType F α] [ProvableType F β] [ProvableType F γ]
 
 namespace Provable
 @[simp]
@@ -501,44 +501,46 @@ instance : ProvableType F (fields F n) where
 end Provable
 
 -- goal: define circuit such that we can provably use it as subcircuit
-structure FormalCircuit (F: Type) (β α: TypePair)
-  [Field F] [ProvableType F α] [ProvableType F β]
+structure FormalCircuit (F: Type) (β α γ: TypePair)
+  [Field F] [ProvableType F α] [ProvableType F β] [ProvableType F γ]
 where
-  main: β.var → Stateful F α.var
+  -- β = inputs, α = outputs, γ = values of internal witnesses for "instrumenting" the circuit as prover
+  main: β.var → (Option γ.value) → Stateful F α.var
 
   assumptions: β.value → Prop
   spec: β.value → α.value → Prop
 
   soundness: open Provable in
-    ∀ b : β.value,
-    ∀ b_var : β.var,
-    eval F b_var = b →
-    assumptions b →
-    ∀ a : α.value,
-    (∃ env,
-      Adversarial.constraints_hold env (main b_var)
-      ∧ (eval_env env (output (main b_var)) = a))
-    → spec b a
+    -- for all inputs that satisfy the assumptions
+    ∀ b : β.value, ∀ b_var : β.var, eval F b_var = b → assumptions b →
+    -- for all locally witnessed values
+    ∀ c: γ.value,
+    -- if the constraints hold
+    constraints_hold (main b_var (some c)) →
+    -- the the spec holds on the output
+    let a := eval F (output (main b_var (some c)))
+    spec b a
 
   completeness: open Provable in
-    ∀ b : β.value, assumptions b →
-    constraints_hold (main (const F b))
+    -- for all inputs that satisfy the assumptions
+    ∀ b : β.value, ∀ b_var : β.var, eval F b_var = b → assumptions b →
+    -- constraints hold when using the internal witness generator
+    constraints_hold (main b_var none)
 
 @[simp]
-def subcircuit_spec (circuit: FormalCircuit F β α) (b_var : β.var) (a_var : α.var) :=
+def subcircuit_spec (circuit: FormalCircuit F β α γ) (b_var : β.var) (a_var : α.var) :=
   ∀ b : β.value,
     Provable.eval F b_var = b →
     circuit.assumptions b →
   ∀ a : α.value,
-    -- (∃ env: ℕ → F, Provable.eval_env env (output (circuit.main b_var)) = a)
     Provable.eval F a_var = a
   → circuit.spec b a
 
 def formal_circuit_to_subcircuit
-  (circuit: FormalCircuit F β α) (b_var : β.var) (a_option : Option α.value) :
+  (circuit: FormalCircuit F β α γ) (b_var : β.var) (a_option : Option α.value) :
     (a_var: α.var) × SpecImplied F (subcircuit_spec circuit b_var a_var) :=
   open Provable in
-  let main := circuit.main b_var
+  let main := circuit.main b_var none -- TODO
 
   -- modify `main` so that we optionally force the output variable to have a fixed value
   let main' := do
@@ -583,7 +585,7 @@ def formal_circuit_to_subcircuit
 
 -- run a sub-circuit
 @[simp]
-def subcircuit (circuit: FormalCircuit F β α) (b: β.var) := as_stateful (
+def subcircuit (circuit: FormalCircuit F β α γ) (b: β.var) := as_stateful (
   fun _ =>
     let ⟨ a, subcircuit ⟩  := formal_circuit_to_subcircuit circuit b none
     let spec := subcircuit_spec circuit b a
@@ -591,7 +593,7 @@ def subcircuit (circuit: FormalCircuit F β α) (b: β.var) := as_stateful (
 )
 
 @[simp]
-def subcircuit_with_output (a_v: Option α.value) (circuit: FormalCircuit F β α) (b: β.var) := as_stateful (
+def subcircuit_with_output (a_v: Option α.value) (circuit: FormalCircuit F β α γ) (b: β.var) := as_stateful (
   fun _ =>
     let ⟨ a, subcircuit ⟩ := formal_circuit_to_subcircuit circuit b a_v
     let spec := subcircuit_spec circuit b a
@@ -755,13 +757,17 @@ def add8 (x y: Expression (F p)) (z carry: Option (F p) := none) := do
   assert_zero (x + y - z - carry * (const 256))
   return z
 
-def add8_full (input : Vector (Expression (F p)) 3) := do
+def add8_full (input : Vector (Expression (F p)) 3) (locals: Option (Vector (F p) 2)) := do
   let ⟨ [x, y, carry_in], _ ⟩ := input
+  -- TODO it's painful to destructure options like this, need a helper that does:
+  -- Monad (Vector α n) -> Vector (Monad α) n
+  let z := do let ⟨ [z, _], _ ⟩ ← locals; return z
+  let carry_out := do let ⟨ [_, carry], _ ⟩ ← locals; return carry
 
-  let z ← witness (fun () => mod_256 (x + y + carry_in))
+  let z ← witness_or_value z (fun () => mod_256 (x + y + carry_in))
   byte_lookup z
 
-  let carry_out ← witness (fun () => floordiv (x + y + carry_in) 256)
+  let carry_out ← witness_or_value carry_out (fun () => floordiv (x + y + carry_in) 256)
   assert_bool carry_out
 
   assert_zero (x + y + carry_in - z - carry_out * (const 256))
@@ -776,19 +782,56 @@ def spec (input : Vector (F p) 3) (z: F p) :=
   let ⟨ [x, y, carry_in], _ ⟩ := input
   (z.val < 256) → z.val = (x.val + y.val + carry_in.val) % 256
 
-def circuit : FormalCircuit (F p) (fields (F p) 3) (field (F p)) where
+def circuit : FormalCircuit (F p) (fields (F p) 3) (field (F p)) (fields (F p) 2) where
   main := add8_full
   assumptions := assumptions
   spec := spec
   soundness := by
-    dsimp [fields, field, Provable.vec, Vector, Vector.get, Vector.map, output,
-      Provable.eval, Provable.eval_env, ProvableType.from_values, ProvableType.to_vars,
-      -- add8_full, byte_lookup, assert_bool, Add8Full.assumptions,
-    ]
-    -- simp
-    intro b b_var hb assumptions a ⟨ env,  ⟨ h_holds, ha ⟩ ⟩
-    sorry
+    -- introductions
+    rintro ⟨ inputs, _ ⟩ ⟨ inputs_var, _ ⟩ h_inputs
+    let [x, y, carry_in] := inputs
+    let [x_var, y_var, carry_in_var] := inputs_var
+    rintro as ⟨ witnesses, _ ⟩
+    let [z, carry_out] := witnesses
+    rintro h_holds z'
 
+    -- characterize inputs
+    -- TODO this must be easier!
+    have h_inputs' : vec [x_var.eval, y_var.eval, carry_in_var.eval] = vec [x, y, carry_in] := h_inputs
+
+    have hx : x_var.eval = x := calc x_var.eval
+      _ = (vec [x_var.eval, y_var.eval, carry_in_var.eval]).get ⟨ 0, by norm_num ⟩ := by rfl
+      _ = (vec [x, y, carry_in]).get ⟨ 0, by norm_num ⟩ := by rw [h_inputs']
+      _ = x := by rfl
+    have hy : y_var.eval = y := calc y_var.eval
+      _ = (vec [x_var.eval, y_var.eval, carry_in_var.eval]).get ⟨ 1, by norm_num ⟩ := by rfl
+      _ = (vec [x, y, carry_in]).get ⟨ 1, by norm_num ⟩ := by rw [h_inputs']
+      _ = y := by rfl
+    have hcarry_in : carry_in_var.eval = carry_in := calc carry_in_var.eval
+      _ = (vec [x_var.eval, y_var.eval, carry_in_var.eval]).get ⟨ 2, by norm_num ⟩ := by rfl
+      _ = (vec [x, y, carry_in]).get ⟨ 2, by norm_num ⟩ := by rw [h_inputs']
+      _ = carry_in := by rfl
+
+    -- characterize output, z' to equal (witness input) z, and replace in spec
+    have hz : z' = z := rfl
+    rw [hz]
+
+    -- simplify constraints hypothesis
+    dsimp at h_holds
+    rw [hx, hy, hcarry_in] at h_holds
+    let ⟨ h_bool_carry, h_add ⟩ := h_holds
+
+    -- simplify assumptions and spec
+    dsimp [spec]
+    dsimp [assumptions] at as
+
+    -- now it's just mathematics!
+    guard_hyp as : x.val < 256 ∧ y.val < 256 ∧ (carry_in = 0 ∨ carry_in = 1)
+    guard_hyp h_bool_carry: carry_out * (carry_out + -1 * 1) = 0
+    guard_hyp h_add: x + y + carry_in + -1 * z + -1 * (carry_out * 256) = 0
+
+    show (z.val < 256) → z.val = (x.val + y.val + carry_in.val) % 256
+    sorry
 
   completeness := sorry
 end Add8Full

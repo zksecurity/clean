@@ -31,4 +31,9 @@ namespace Vector
       let l' ← List.mapM id v.val
       return ⟨ l', by sorry ⟩
 
+  -- other direction
+  @[simp]
+  def unmapM { M : Type → Type } [Monad M] (v : M (Vector α n)) : Vector (M α) n :=
+    sorry
+
 end Vector
