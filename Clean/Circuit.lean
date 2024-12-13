@@ -833,7 +833,47 @@ def circuit : FormalCircuit (F p) (fields (F p) 3) (field (F p)) (fields (F p) 2
     show (z.val < 256) → z.val = (x.val + y.val + carry_in.val) % 256
     sorry
 
-  completeness := sorry
+  completeness := by
+    -- introductions
+    rintro ⟨ inputs, _ ⟩ ⟨ inputs_var, _ ⟩ h_inputs
+    let [x, y, carry_in] := inputs
+    let [x_var, y_var, carry_in_var] := inputs_var
+    rintro as
+
+    -- characterize inputs
+    have h_inputs' : vec [x_var.eval, y_var.eval, carry_in_var.eval] = vec [x, y, carry_in] := h_inputs
+
+    have hx : x_var.eval = x := calc x_var.eval
+      _ = (vec [x_var.eval, y_var.eval, carry_in_var.eval]).get ⟨ 0, by norm_num ⟩ := by rfl
+      _ = (vec [x, y, carry_in]).get ⟨ 0, by norm_num ⟩ := by rw [h_inputs']
+      _ = x := by rfl
+    have hy : y_var.eval = y := calc y_var.eval
+      _ = (vec [x_var.eval, y_var.eval, carry_in_var.eval]).get ⟨ 1, by norm_num ⟩ := by rfl
+      _ = (vec [x, y, carry_in]).get ⟨ 1, by norm_num ⟩ := by rw [h_inputs']
+      _ = y := by rfl
+    have hcarry_in : carry_in_var.eval = carry_in := calc carry_in_var.eval
+      _ = (vec [x_var.eval, y_var.eval, carry_in_var.eval]).get ⟨ 2, by norm_num ⟩ := by rfl
+      _ = (vec [x, y, carry_in]).get ⟨ 2, by norm_num ⟩ := by rw [h_inputs']
+      _ = carry_in := by rfl
+
+    -- simplify assumptions
+    dsimp [assumptions] at as
+
+    -- unfold goal, (re)introduce names for some of unfolded variables
+    dsimp
+    rw [hx, hy, hcarry_in]
+    let z := mod_256 (x + y + carry_in)
+    let carry_out := floordiv (x + y + carry_in) 256
+    rw [←(by rfl : z = mod_256 (x + y + carry_in))]
+    rw [←(by rfl : carry_out = floordiv (x + y + carry_in) 256)]
+
+    -- now it's just mathematics!
+    guard_hyp as : x.val < 256 ∧ y.val < 256 ∧ (carry_in = 0 ∨ carry_in = 1)
+
+    let goal_bool := carry_out * (carry_out + -1 * 1) = 0
+    let goal_add := x + y + carry_in + -1 * z + -1 * (carry_out * 256) = 0
+    show goal_bool ∧ goal_add
+    sorry
 end Add8Full
 
 def add8_wrapped (input : Vector (Expression (F p)) 2) (z: Option (F p) := none) := do
