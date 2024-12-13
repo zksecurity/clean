@@ -950,7 +950,47 @@ def circuit : FormalCircuit (F p) (fields (F p) 2) (field (F p)) (field (F p)) w
   assumptions := assumptions
   spec := spec
   soundness := soundness_wrapped
-  completeness := sorry
+  completeness := by
+    -- introductions
+    rintro ⟨ inputs, _ ⟩ ⟨ inputs_var, _ ⟩ h_inputs
+    let [x, y] := inputs
+    let [x_var, y_var] := inputs_var
+    rintro as
+
+    -- characterize inputs
+    have h_inputs' : vec [x_var.eval, y_var.eval] = vec [x, y] := h_inputs
+
+    have hx : x_var.eval = x := calc x_var.eval
+      _ = (vec [x_var.eval, y_var.eval]).get ⟨ 0, by norm_num ⟩ := by rfl
+      _ = (vec [x, y]).get ⟨ 0, by norm_num ⟩ := by rw [h_inputs']
+      _ = x := by rfl
+    have hy : y_var.eval = y := calc y_var.eval
+      _ = (vec [x_var.eval, y_var.eval]).get ⟨ 1, by norm_num ⟩ := by rfl
+      _ = (vec [x, y]).get ⟨ 1, by norm_num ⟩ := by rw [h_inputs']
+      _ = y := by rfl
+
+    -- simplify assumptions
+    dsimp [assumptions] at as
+
+    -- simplify goal
+    dsimp
+    rw [hx, hy]
+
+    -- the goal is just the `subcircuit_spec` of `Add8Full.circuit`
+    -- this gets a bit redundant because now we're introducing the same variables again, but we don't need them
+    intro inputs' h_inputs' as' z' hz'
+    rw [← hz', ← h_inputs']
+
+    dsimp [Add8Full.circuit, Add8Full.spec, ProvableType.from_values, Vector.get]
+    simp
+    rintro hz
+
+    -- now it's just mathematics!
+    -- TODO but it feels like we're redoing the completeness proof of `Add8Full`?
+    guard_hyp as : x.val < 256 ∧ y.val < 256
+    guard_hyp hz: (mod_256 (x + y)).val < 256
+    show (mod_256 (x + y)).val = (x.val + y.val) % 256
+    sorry
 
 end Add8
 
