@@ -831,8 +831,6 @@ theorem soundness_wrapped : ∀ x y : F p, -- inputs
 := by
   -- simplify
   intro x y hx hy z h
-  let carry_in: F p := 0
-
   dsimp at h
 
   -- h is just the `subcircuit_spec` of `Add8Full.circuit`
@@ -840,21 +838,19 @@ theorem soundness_wrapped : ∀ x y : F p, -- inputs
   have h1 := h (vec [x, y, 0]) rfl
 
   -- trivially satisfy `Add8Full.assumptions`
-  have assumptions: Add8Full.assumptions (vec [x, y, carry_in]) := by
-    have zero_is_boolean : carry_in = 0 ∨ carry_in = 1 := by tauto
-    exact ⟨hx, hy, zero_is_boolean⟩
-
+  have assumptions: Add8Full.assumptions (vec [x, y, 0]) := ⟨hx, hy, by tauto⟩
   have h2 := h1 assumptions
 
   -- pass in output value and a (trivial) proof that it's correct
   have h3 : Add8Full.circuit.spec (vec [x, y, 0]) z := h2 z rfl
 
-  -- unfold `Add8Full` statements to show what `h2` is in our context
+  -- unfold `Add8Full` statements to show what the hypothesis is in our context
   dsimp [Add8Full.circuit, Add8Full.spec] at h3
 
   -- now the proof is trivial because our spec is almost identical to `Add8Full.spec`
-  guard_hyp h3: z.val < 256 → z.val = (x.val + y.val + carry_in.val) % 256
+  guard_hyp h3: z.val < 256 → z.val = (x.val + y.val + (0 : F p).val) % 256
   show (z.val < 256) → z.val = (x.val + y.val) % 256
+
   simp at h3
   exact h3
 end Add8
