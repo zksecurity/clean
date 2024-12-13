@@ -150,7 +150,7 @@ end PreOperation
 -- for all traces that satisfy the constraints
 structure SpecImplied (F: Type) [Field F] (spec: Prop) where
   ops: List (PreOperation F)
-  imply_spec: ∀ env, (PreOperation.constraints_hold env ops) → spec
+  imply_spec: ∀ env, PreOperation.constraints_hold env ops → spec
 
 inductive Operation (F : Type) [Field F] where
   | Witness : (compute : Unit → F) → Operation F
@@ -424,6 +424,23 @@ def const (F: Type) [ProvableType F α] (x: α.value) : α.var :=
   let values : Vector F n := ProvableType.to_values x
   ProvableType.from_vars (values.map (fun v => Expression.const v))
 
+private def witness' := witness (F:=F)
+
+def witness {F: Type} [Field F] [ProvableType F α] (compute : Unit → α.value) :=
+  let n := ProvableType.size F α
+  let values : Vector F n := ProvableType.to_values (compute ())
+  let varsM : Vector (Stateful F (Expression F)) n := values.map (fun v => witness' (fun () => v))
+  do
+    let vars ← varsM.mapM
+    return ProvableType.from_vars vars
+
+def assert_equal {F: Type} [Field F] [ProvableType F α] (a a': α.var) : Stateful F Unit :=
+  let n := ProvableType.size F α
+  let vars: Vector (Expression F) n := ProvableType.to_vars a
+  let vars': Vector (Expression F) n := ProvableType.to_vars a'
+  let eqs := (vars.zip vars').map (fun ⟨ x, x' ⟩ => assert_zero (x - x'))
+  do let _ ← eqs.mapM
+
 @[reducible]
 def field (F : Type) : TypePair := ⟨ Expression F, F ⟩
 
@@ -533,6 +550,17 @@ def subcircuit (circuit: FormalCircuit F β α) (b: β.var) := as_stateful (
     let (subcircuit, a) := formal_circuit_to_subcircuit circuit b
     (Operation.Circuit ⟨ spec, subcircuit ⟩, a)
 )
+
+@[simp]
+def subcircuit_with_output (a_v: Option α.value) (circuit: FormalCircuit F β α) (b: β.var) := do
+  let a ← subcircuit circuit b
+  -- if a value was provided, replace the output with it
+  match a_v with
+  | none => return a
+  | some a_v => do
+    let a' ← Provable.witness (fun () => a_v)
+    Provable.assert_equal a a'
+    return a'
 end Circuit
 
 
@@ -761,12 +789,14 @@ theorem soundness : ∀ x y : F p, -- inputs/outputs
 
 theorem soundness_wrapped : ∀ x y : F p, -- inputs/outputs
   x.val < 256 → y.val < 256 → -- assumptions
-  ∀ z : F p, -- output
-  (∃ carry : F p, constraints_hold (add8_wrapped (vec [const x, const y]))) -- circuit
+  ∀ z : F p, -- output value
+  -- TODO this is not allowing arbitrary assignment of z inside the circuit
+    (output (add8_wrapped (vec [const x, const y]))).eval = z -- output
+  → constraints_hold (add8_wrapped (vec [const x, const y])) -- constraints
   → spec x y z
 := by
   -- simplify
-  intro x y hx hy z ⟨carry, h⟩
+  intro x y hx hy z hz h
   let carry_in: F p := 0
 
   dsimp [spec]
