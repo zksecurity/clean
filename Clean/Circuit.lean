@@ -893,38 +893,7 @@ def assumptions (input : Vector (F p) 2) :=
   let ⟨ [x, y], _ ⟩ := input
   x.val < 256 ∧ y.val < 256
 
-theorem soundness_wrapped : ∀ x y : F p, -- inputs
-  x.val < 256 → y.val < 256 → -- assumptions
-  ∀ z : F p, -- output value
-    constraints_hold (add8_wrapped (vec [const x, const y]) (some z)) -- constraints
-  → ((z.val < 256) → z.val = (x.val + y.val) % 256)
-:= by
-  -- simplify
-  intro x y hx hy z h
-  dsimp at h
-
-  -- h is just the `subcircuit_spec` of `Add8Full.circuit`
-  -- pass in the input values and a (trivial) proof that they are correct
-  have h1 := h (vec [x, y, 0]) rfl
-
-  -- satisfy `Add8Full.assumptions`
-  have assumptions: Add8Full.assumptions (vec [x, y, 0]) := ⟨hx, hy, by tauto⟩
-  have h2 := h1 assumptions
-
-  -- pass in output value and a (trivial) proof that it's correct
-  have h3 : Add8Full.circuit.spec (vec [x, y, 0]) z := h2 z rfl
-
-  -- unfold `Add8Full` statements to show what the hypothesis is in our context
-  dsimp [Add8Full.circuit, Add8Full.spec] at h3
-
-  -- now the proof is trivial because our spec is almost identical to `Add8Full.spec`
-  guard_hyp h3: z.val < 256 → z.val = (x.val + y.val + (0 : F p).val) % 256
-  show (z.val < 256) → z.val = (x.val + y.val) % 256
-
-  simp at h3
-  exact h3
-
-def soundness (inputs: Vector (F p) 2) (inputs_var: Vector (Expression (F p)) 2)
+def soundness_wrapped (inputs: Vector (F p) 2) (inputs_var: Vector (Expression (F p)) 2)
     (h_inputs: (Provable.eval (F p) (α:=(fields (F p) 2)) inputs_var) = inputs)
     (as: assumptions inputs)
     (z: (F p))
@@ -933,9 +902,9 @@ def soundness (inputs: Vector (F p) 2) (inputs_var: Vector (Expression (F p)) 2)
     spec inputs z'
   := by
   -- finish introductions
-  intro z'
   let ⟨ [x, y], _ ⟩ := inputs
   let ⟨ [x_var, y_var], _ ⟩ := inputs_var
+  intro z'
 
   -- characterize inputs
   have h_inputs' : vec [x_var.eval, y_var.eval] = vec [x, y] := h_inputs
@@ -950,7 +919,7 @@ def soundness (inputs: Vector (F p) 2) (inputs_var: Vector (Expression (F p)) 2)
     _ = y := by rfl
 
   -- characterize output, z' to equal (witness input) z, and replace in spec
-  have hz : z' = z := by sorry -- TODO
+  have hz : z' = z := by rfl
   rw [hz]
 
   -- simplify constraints hypothesis
@@ -980,7 +949,7 @@ def circuit : FormalCircuit (F p) (fields (F p) 2) (field (F p)) (field (F p)) w
   main := add8_wrapped
   assumptions := assumptions
   spec := spec
-  soundness := soundness
+  soundness := soundness_wrapped
   completeness := sorry
 
 end Add8
