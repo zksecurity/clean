@@ -155,6 +155,9 @@ structure SpecImplied (F: Type) [Field F] (spec: Prop) where
 inductive Operation (F : Type) [Field F] where
   | Witness : (compute : Unit → F) → Operation F
   | Assert : Expression F → Operation F
+  -- an assertion that ends up in the list of constraints, but is IGNORED by `constraints_hold`
+  -- we need this in soundness proofs to weaken our statement, by ignoring witnesses the prover can't override
+  | SilentAssert : Expression F → Operation F
   | Lookup : Lookup F → Operation F
   | Assign : Cell F × Variable F → Operation F
   | Circuit : (Σ (s : Prop), SpecImplied F s) → Operation F
@@ -167,6 +170,7 @@ def run (ctx: Context F) : Operation F → Context F
     let offset := ctx.offset + 1
     { ctx with offset, locals := ctx.locals.push var }
   | Assert _ => ctx
+  | SilentAssert _ => ctx
   | Lookup _ => ctx
   | Assign _ => ctx
   | Circuit ⟨ _, ops, _ ⟩ =>
@@ -176,6 +180,7 @@ def run (ctx: Context F) : Operation F → Context F
 def toString [Repr F] : (op : Operation F) → String
   | Witness _v => "Witness"
   | Assert e => "(Assert " ++ reprStr e ++ " == 0)"
+  | SilentAssert e => "(SilentAssert " ++ reprStr e ++ " == 0)"
   | Lookup l => reprStr l
   | Assign (c, v) => "(Assign " ++ reprStr c ++ ", " ++ reprStr v ++ ")"
   | Circuit ⟨ _, ops, _ ⟩ => "(Circuit " ++ reprStr (ops.map PreOperation.toString) ++ ")"
@@ -195,9 +200,9 @@ instance : Monad (Stateful F) where
     ((ctx'', ops ++ ops'), b)
 
 @[simp]
-def Stateful.run (circuit: Stateful F α) : Context F × List (Operation F) × α :=
-  let ((ctx, ops), a) := circuit Context.empty
-  (ctx, ops, a)
+def Stateful.run (circuit: Stateful F α) : List (Operation F) × α :=
+  let ((_, ops), a) := circuit Context.empty
+  (ops, a)
 
 @[simp]
 def as_stateful (f: Context F → Operation F × α) : Stateful F α := fun ctx  =>
@@ -223,6 +228,11 @@ def witness (compute : Unit → F) := do
 @[simp]
 def assert_zero (e: Expression F) := as_stateful (
   fun _ => (Operation.Assert e, ())
+)
+
+@[simp]
+def assert_zero_silent (e: Expression F) := as_stateful (
+  fun _ => (Operation.SilentAssert e, ())
 )
 
 -- add a lookup
@@ -311,6 +321,7 @@ namespace Adversarial
   | op :: ops => match op with
     | Operation.Witness compute => PreOperation.Witness compute :: to_flat_operations ops
     | Operation.Assert e => PreOperation.Assert e :: to_flat_operations ops
+    | Operation.SilentAssert e => PreOperation.Assert e :: to_flat_operations ops
     | Operation.Lookup l => PreOperation.Lookup l :: to_flat_operations ops
     | Operation.Assign (c, v) => PreOperation.Assign (c, v) :: to_flat_operations ops
     | Operation.Circuit ⟨ _, ops', _ ⟩ => ops' ++ to_flat_operations ops
@@ -336,6 +347,7 @@ namespace Adversarial
         cases op with
         | Circuit c => sorry
         | Assert e => sorry
+        | SilentAssert e => sorry
         | Witness c =>
           have h_ops : to_flat_operations (Operation.Witness c :: op' :: ops') = PreOperation.Witness c :: to_flat_operations (op' :: ops') := rfl
           rw [h_ops]
@@ -426,6 +438,7 @@ def const (F: Type) [ProvableType F α] (x: α.value) : α.var :=
 
 private def witness' := witness (F:=F)
 
+@[simp]
 def witness {F: Type} [Field F] [ProvableType F α] (compute : Unit → α.value) :=
   let n := ProvableType.size F α
   let values : Vector F n := ProvableType.to_values (compute ())
@@ -434,11 +447,20 @@ def witness {F: Type} [Field F] [ProvableType F α] (compute : Unit → α.value
     let vars ← varsM.mapM
     return ProvableType.from_vars vars
 
+@[simp]
 def assert_equal {F: Type} [Field F] [ProvableType F α] (a a': α.var) : Stateful F Unit :=
   let n := ProvableType.size F α
   let vars: Vector (Expression F) n := ProvableType.to_vars a
   let vars': Vector (Expression F) n := ProvableType.to_vars a'
   let eqs := (vars.zip vars').map (fun ⟨ x, x' ⟩ => assert_zero (x - x'))
+  do let _ ← eqs.mapM
+
+@[simp]
+def assert_equal_silent {F: Type} [Field F] [ProvableType F α] (a a': α.var) : Stateful F Unit :=
+  let n := ProvableType.size F α
+  let vars: Vector (Expression F) n := ProvableType.to_vars a
+  let vars': Vector (Expression F) n := ProvableType.to_vars a'
+  let eqs := (vars.zip vars').map (fun ⟨ x, x' ⟩ => assert_zero_silent (x - x'))
   do let _ ← eqs.mapM
 
 @[reducible]
@@ -559,7 +581,8 @@ def subcircuit_with_output (a_v: Option α.value) (circuit: FormalCircuit F β �
   | none => return a
   | some a_v => do
     let a' ← Provable.witness (fun () => a_v)
-    Provable.assert_equal a a'
+    Provable.assert_equal_silent a a' -- silent, because we don't want to "believe" this equation when proving soundness
+    -- since we can't override the value of `a`, but a real prover can, we want to ignore its value
     return a'
 end Circuit
 
@@ -757,9 +780,9 @@ def circuit : FormalCircuit (F p) (fields (F p) 3) (field (F p)) where
   completeness := sorry
 end Add8Full
 
-def add8_wrapped (input : Vector (Expression (F p)) 2) := do
+def add8_wrapped (input : Vector (Expression (F p)) 2) (z: Option (F p) := none) := do
   let ⟨ [x, y], _ ⟩ := input
-  let z ← subcircuit Add8Full.circuit (vec [x, y, const 0])
+  let z ← subcircuit_with_output z Add8Full.circuit (vec [x, y, const 0])
   return z
 
 namespace Add8
@@ -787,23 +810,24 @@ theorem soundness : ∀ x y : F p, -- inputs/outputs
 
   sorry
 
-theorem soundness_wrapped : ∀ x y : F p, -- inputs/outputs
+theorem soundness_wrapped : ∀ x y : F p, -- inputs
   x.val < 256 → y.val < 256 → -- assumptions
   ∀ z : F p, -- output value
-  -- TODO this is not allowing arbitrary assignment of z inside the circuit
-    (output (add8_wrapped (vec [const x, const y]))).eval = z -- output
-  → constraints_hold (add8_wrapped (vec [const x, const y])) -- constraints
+    constraints_hold (add8_wrapped (vec [const x, const y]) (some z)) -- constraints
   → spec x y z
 := by
   -- simplify
-  intro x y hx hy z hz h
+  intro x y hx hy z h
   let carry_in: F p := 0
 
-  dsimp [spec]
   dsimp at h
+
+  -- TODO why is there a trailing `∧ True` in `h`?
+  rcases h with ⟨h, (_: True)⟩
+
   -- h is just the `subcircuit_spec` of `Add8Full.circuit`
   -- pass in the input values and a (trivial) proof that they are correct
-  have h1 := h (vec [x, y, 0]) (by rfl)
+  have h1 := h (vec [x, y, 0]) rfl
 
   -- trivially satisfy `Add8Full.assumptions`
   have assumptions: Add8Full.assumptions (vec [x, y, carry_in]) := by
@@ -841,6 +865,6 @@ def Main (x y : F p) : Stateful (F p) Unit := do
     let x ← witness (fun _ => 10)
     let y ← witness (fun _ => 20)
     add8_wrapped (p:=p) (vec [x, y])
-  let (_, ops, _) := main.run
+  let (ops, _) := main.run
   ops
 end

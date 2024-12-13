@@ -14,17 +14,21 @@ namespace Vector
   def map (f: α → β) : Vector α n → Vector β n
     | ⟨ l, h ⟩ => ⟨ l.map f, by rw [List.length_map, h] ⟩
 
+  @[simp]
   def zip : Vector α n → Vector β n → Vector (α × β) n
     | ⟨ [], ha ⟩, ⟨ [], _ ⟩  => ⟨ [], ha ⟩
-    | ⟨ a::as, ha ⟩, ⟨ b::bs, hb ⟩ => sorry
+    | ⟨ a::as, ha ⟩, ⟨ b::bs, hb ⟩ => ⟨ (a, b) :: List.zip as bs, by sorry ⟩
 
   def get (v: Vector α n) (i: Fin n) : α :=
     let i' : Fin v.1.length := Fin.cast (length_matches v).symm i
     v.val.get i'
 
   -- map over monad
+  @[simp]
   def mapM { M : Type → Type } [Monad M] (v : Vector (M α) n) : M (Vector α n) :=
     -- there `List.mapM` which we can use, but there doesn't seem to be an equivalent of `List.length_map` for monads
-    sorry
+    do
+      let l' ← List.mapM id v.val
+      return ⟨ l', by sorry ⟩
 
 end Vector
