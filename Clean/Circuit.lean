@@ -879,19 +879,25 @@ def circuit : FormalCircuit (F p) (fields (F p) 3) (field (F p)) (fields (F p) 2
     sorry
 end Add8Full
 
-def add8_wrapped (input : Vector (Expression (F p)) 2) (z: Option (F p) := none) := do
+def add8_wrapped (input : Vector (Expression (F p)) 2) (z: Option (F p)) := do
   let ⟨ [x, y], _ ⟩ := input
   let z ← subcircuit_with_output z Add8Full.circuit (vec [x, y, const 0])
   return z
 
 namespace Add8
-def spec (x y z: F p) := (z.val < 256) → z.val = (x.val + y.val) % 256
+def spec (input : Vector (F p) 2) (z: F p) :=
+  let ⟨ [x, y], _ ⟩ := input
+  (z.val < 256) → z.val = (x.val + y.val) % 256
+
+def assumptions (input : Vector (F p) 2) :=
+  let ⟨ [x, y], _ ⟩ := input
+  x.val < 256 ∧ y.val < 256
 
 theorem soundness_wrapped : ∀ x y : F p, -- inputs
   x.val < 256 → y.val < 256 → -- assumptions
   ∀ z : F p, -- output value
     constraints_hold (add8_wrapped (vec [const x, const y]) (some z)) -- constraints
-  → spec x y z
+  → ((z.val < 256) → z.val = (x.val + y.val) % 256)
 := by
   -- simplify
   intro x y hx hy z h
@@ -901,7 +907,7 @@ theorem soundness_wrapped : ∀ x y : F p, -- inputs
   -- pass in the input values and a (trivial) proof that they are correct
   have h1 := h (vec [x, y, 0]) rfl
 
-  -- trivially satisfy `Add8Full.assumptions`
+  -- satisfy `Add8Full.assumptions`
   have assumptions: Add8Full.assumptions (vec [x, y, 0]) := ⟨hx, hy, by tauto⟩
   have h2 := h1 assumptions
 
@@ -917,6 +923,66 @@ theorem soundness_wrapped : ∀ x y : F p, -- inputs
 
   simp at h3
   exact h3
+
+def soundness (inputs: Vector (F p) 2) (inputs_var: Vector (Expression (F p)) 2)
+    (h_inputs: (Provable.eval (F p) (α:=(fields (F p) 2)) inputs_var) = inputs)
+    (as: assumptions inputs)
+    (z: (F p))
+    (h: constraints_hold (add8_wrapped inputs_var (some z))) :
+    let z' := Provable.eval (F p) (output (add8_wrapped inputs_var (some z)))
+    spec inputs z'
+  := by
+  -- finish introductions
+  intro z'
+  let ⟨ [x, y], _ ⟩ := inputs
+  let ⟨ [x_var, y_var], _ ⟩ := inputs_var
+
+  -- characterize inputs
+  have h_inputs' : vec [x_var.eval, y_var.eval] = vec [x, y] := h_inputs
+
+  have hx : x_var.eval = x := calc x_var.eval
+    _ = (vec [x_var.eval, y_var.eval]).get ⟨ 0, by norm_num ⟩ := by rfl
+    _ = (vec [x, y]).get ⟨ 0, by norm_num ⟩ := by rw [h_inputs']
+    _ = x := by rfl
+  have hy : y_var.eval = y := calc y_var.eval
+    _ = (vec [x_var.eval, y_var.eval]).get ⟨ 1, by norm_num ⟩ := by rfl
+    _ = (vec [x, y]).get ⟨ 1, by norm_num ⟩ := by rw [h_inputs']
+    _ = y := by rfl
+
+  -- characterize output, z' to equal (witness input) z, and replace in spec
+  have hz : z' = z := by sorry -- TODO
+  rw [hz]
+
+  -- simplify constraints hypothesis
+  dsimp at h
+
+  -- h is just the `subcircuit_spec` of `Add8Full.circuit`
+  -- pass in the input values and a proof that they are correct
+  have h_inputs'' : vec [x_var.eval, y_var.eval, 0] = vec [x, y, 0] := by rw [hx, hy]
+  have h1 := h (vec [x, y, 0]) h_inputs''
+
+  -- satisfy `Add8Full.assumptions` by using our own assumptions
+  let ⟨ asx, asy ⟩ := as
+  have as': Add8Full.assumptions (vec [x, y, 0]) := ⟨asx, asy, by tauto⟩
+  have h2 := h1 as'
+
+  -- pass in output value and a (trivial) proof that it's correct
+  have h3 : Add8Full.circuit.spec (vec [x, y, 0]) z := h2 z rfl
+
+  -- unfold `Add8Full` statements to show what the hypothesis is in our context
+  dsimp [Add8Full.circuit, Add8Full.spec] at h3
+  guard_hyp h3: z.val < 256 → z.val = (x.val + y.val + (0 : F p).val) % 256
+
+  simp at h3
+  exact h3
+
+def circuit : FormalCircuit (F p) (fields (F p) 2) (field (F p)) (field (F p)) where
+  main := add8_wrapped
+  assumptions := assumptions
+  spec := spec
+  soundness := soundness
+  completeness := sorry
+
 end Add8
 
 def Main (x y : F p) : Stateful (F p) Unit := do
@@ -936,7 +1002,7 @@ def Main (x y : F p) : Stateful (F p) Unit := do
   let main := do
     let x ← witness (fun _ => 10)
     let y ← witness (fun _ => 20)
-    add8_wrapped (p:=p) (vec [x, y])
+    add8_wrapped (p:=p) (vec [x, y]) none
   let (ops, _) := main.run
   ops
 end
