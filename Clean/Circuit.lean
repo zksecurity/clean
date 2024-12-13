@@ -130,6 +130,12 @@ inductive PreOperation (F : Type) [Field F] where
   | Assign : Cell F × Variable F → PreOperation F
 
 namespace PreOperation
+def toString [Repr F] : (op : PreOperation F) → String
+  | Witness _v => "Witness"
+  | Assert e => "(Assert " ++ reprStr e ++ " == 0)"
+  | Lookup l => reprStr l
+  | Assign (c, v) => "(Assign " ++ reprStr c ++ ", " ++ reprStr v ++ ")"
+
 def constraints_hold (env: ℕ → F) : List (PreOperation F) → Prop
   | [] => True
   | op :: [] => match op with
@@ -145,7 +151,6 @@ end PreOperation
 structure SpecImplied (F: Type) [Field F] (spec: Prop) where
   ops: List (PreOperation F)
   imply_spec: ∀ env, (PreOperation.constraints_hold env ops) → spec
-
 
 inductive Operation (F : Type) [Field F] where
   | Witness : (compute : Unit → F) → Operation F
@@ -164,20 +169,16 @@ def run (ctx: Context F) : Operation F → Context F
   | Assert _ => ctx
   | Lookup _ => ctx
   | Assign _ => ctx
-  | Circuit _ => ctx
+  | Circuit ⟨ _, ops, _ ⟩ =>
+    let offset := ctx.offset + ops.length
+    { ctx with offset }
 
 def toString [Repr F] : (op : Operation F) → String
   | Witness _v => "Witness"
   | Assert e => "(Assert " ++ reprStr e ++ " == 0)"
   | Lookup l => reprStr l
   | Assign (c, v) => "(Assign " ++ reprStr c ++ ", " ++ reprStr v ++ ")"
-  -- | Circuit ⟨ _, ops ⟩ => "(Circuit " ++ reprStr (go ops) ++ ")"
-  | Circuit _ => "Circuit"
--- this helps lean recognize the structural recursion
-where go (ops : List (Operation F)) : List String :=
-  match ops with
-  | [] => []
-  | op :: ops => op.toString :: go ops
+  | Circuit ⟨ _, ops, _ ⟩ => "(Circuit " ++ reprStr (ops.map PreOperation.toString) ++ ")"
 
 instance [Repr F] : ToString (Operation F) where
   toString := toString
@@ -284,7 +285,7 @@ def constraints : List (Operation F) →  List (NestedList (Expression F))
     | _ => constraints ops
 
 def witness_length (circuit : Stateful F α) : ℕ :=
-  let (ctx, _, _) := circuit.run
+  let ((ctx, _), _) := circuit Context.empty
   ctx.locals.size
 
 namespace Adversarial
@@ -302,8 +303,7 @@ namespace Adversarial
 
   @[simp]
   def constraints_hold [Field F] (env: (ℕ → F)) (circuit: Stateful F α)   : Prop :=
-    let (_, ops, _) := circuit.run
-    constraints_hold_from_list env ops
+    constraints_hold_from_list env (circuit Context.empty).1.2
 
   def to_flat_operations [Field F] (ops: List (Operation F)) : List (PreOperation F) :=
   match ops with
@@ -367,12 +367,10 @@ def constraints_hold_from_list [Field F] : List (Operation F) → Prop
 
 @[simp]
 def constraints_hold (circuit: Stateful F α) : Prop :=
-  let (_, ops, _) := circuit.run
-  constraints_hold_from_list ops
+  constraints_hold_from_list (circuit Context.empty).1.2
 
 def output (circuit: Stateful F α) : α :=
-  let (_, _, a) := circuit.run
-  a
+  (circuit Context.empty).2
 
 structure TypePair where
   var: Type
@@ -407,12 +405,14 @@ def Provable' (F: Type) := { α : TypePair // ∃ p : Type, p = ProvableType F �
 variable {α β: TypePair} [ProvableType F α] [ProvableType F β]
 
 namespace Provable
+@[simp]
 def eval (F: Type) [Field F] [ProvableType F α] (x: α.var) : α.value :=
   let n := ProvableType.size F α
   let vars : Vector (Expression F) n := ProvableType.to_vars x
   let values := vars.map (fun v => v.eval)
   ProvableType.from_values values
 
+@[simp]
 def eval_env (env: ℕ → F) (x: α.var) : α.value :=
   let n := ProvableType.size F α
   let vars : Vector (Expression F) n := ProvableType.to_vars x
@@ -429,9 +429,9 @@ def field (F : Type) : TypePair := ⟨ Expression F, F ⟩
 
 instance : ProvableType F (field F) where
   size := 1
-  to_vars x := vector [x]
+  to_vars x := vec [x]
   from_vars v := v.get ⟨ 0, by norm_num ⟩
-  to_values x := vector [x]
+  to_values x := vec [x]
   from_values v := v.get ⟨ 0, by norm_num ⟩
 
 @[reducible]
@@ -442,14 +442,15 @@ def field2 (F : Type) : TypePair := pair (field F) (field F)
 
 instance : ProvableType F (field2 F) where
   size := 2
-  to_vars pair := vector [pair.1, pair.2]
+  to_vars pair := vec [pair.1, pair.2]
   from_vars v := (v.get ⟨ 0, by norm_num ⟩, v.get ⟨ 1, by norm_num ⟩)
-  to_values pair :=vector [pair.1, pair.2]
+  to_values pair :=vec [pair.1, pair.2]
   from_values v := (v.get ⟨ 0, by norm_num ⟩, v.get ⟨ 1, by norm_num ⟩)
 
 variable {n: ℕ}
 def vec (α: TypePair) (n: ℕ) : TypePair := ⟨ Vector α.var n, Vector α.value n ⟩
 
+@[reducible]
 def fields (F: Type) (n: ℕ) : TypePair := vec (field F) n
 
 instance : ProvableType F (fields F n) where
@@ -484,13 +485,14 @@ where
     ∀ b : β.value, assumptions b →
     constraints_hold (main (const F b))
 
+@[simp]
 def subcircuit_spec (circuit: FormalCircuit F β α) (b_var : β.var) :=
   ∀ b : β.value,
   Provable.eval F b_var = b →
   circuit.assumptions b →
   ∃ a : α.value, circuit.spec b a
 
-def formal_circuit_is_subcircuit
+def formal_circuit_to_subcircuit
   (circuit: FormalCircuit F β α) (b_var : β.var) :
     SpecImplied F (subcircuit_spec circuit b_var) × α.var :=
   open Provable in
@@ -528,7 +530,7 @@ def formal_circuit_is_subcircuit
 def subcircuit (circuit: FormalCircuit F β α) (b: β.var) := as_stateful (
   fun _ =>
     let spec := subcircuit_spec circuit b
-    let (subcircuit, a) := formal_circuit_is_subcircuit circuit b
+    let (subcircuit, a) := formal_circuit_to_subcircuit circuit b
     (Operation.Circuit ⟨ spec, subcircuit ⟩, a)
 )
 end Circuit
@@ -624,11 +626,11 @@ def ByteTable : Table (F p) where
   name := "Bytes"
   length := 256
   arity := 1
-  row i := vector [from_byte i]
+  row i := vec [from_byte i]
 
 def byte_lookup (x: Expression (F p)) := lookup {
   table := ByteTable
-  entry := vector [x]
+  entry := vec [x]
   index := fun () =>
     let x := x.eval.val
     if h : (x < 256)
@@ -714,13 +716,22 @@ def circuit : FormalCircuit (F p) (fields (F p) 3) (field (F p)) where
   main := add8_full
   assumptions := assumptions
   spec := spec
-  soundness := sorry
+  soundness := by
+    dsimp [fields, field, Provable.vec, Vector, Vector.get, Vector.map, output,
+      Provable.eval, Provable.eval_env, ProvableType.from_values, ProvableType.to_vars,
+      -- add8_full, byte_lookup, assert_bool, Add8Full.assumptions,
+    ]
+    -- simp
+    intro b b_var hb assumptions a ⟨ env,  ⟨ h_holds, ha ⟩ ⟩
+    sorry
+
+
   completeness := sorry
 end Add8Full
 
 def add8_wrapped (input : Vector (Expression (F p)) 2) := do
   let ⟨ [x, y], _ ⟩ := input
-  let z ← subcircuit Add8Full.circuit (vector [x, y, const 0])
+  let z ← subcircuit Add8Full.circuit (vec [x, y, const 0])
   return z
 
 namespace Add8
@@ -747,6 +758,38 @@ theorem soundness : ∀ x y : F p, -- inputs/outputs
   have spec_bool: carry = 0 ∨ carry = 1 := (Boolean.equiv carry).mp h_bool
 
   sorry
+
+theorem soundness_wrapped : ∀ x y : F p, -- inputs/outputs
+  x.val < 256 → y.val < 256 → -- assumptions
+  ∀ z : F p, -- output
+  (∃ carry : F p, constraints_hold (add8_wrapped (vec [const x, const y]))) -- circuit
+  → spec x y z
+:= by
+  -- simplify
+  intro x y hx hy z ⟨carry, h⟩
+  let carry_in: F p := 0
+
+  dsimp [spec]
+  dsimp at h
+  -- h is just the `subcircuit_spec` of `Add8Full.circuit`
+  -- pass in the input values and a (trivial) proof that they are correct
+  have h1 := h (vec [x, y, 0]) (by rfl)
+
+  -- trivially satisfy `Add8Full.assumptions`
+  have assumptions: Add8Full.assumptions (vec [x, y, carry_in]) := by
+    have zero_is_boolean : carry_in = 0 ∨ carry_in = 1 := by tauto
+    exact ⟨hx, hy, zero_is_boolean⟩
+
+  have h2 : ∃ a, Add8Full.circuit.spec (vec [x, y, carry_in]) a := h1 assumptions
+
+  -- unfold `Add8Full` statements to show what `h2` is in our context
+  dsimp [Add8Full.circuit, Add8Full.spec] at h2
+
+  guard_hyp h2: ∃ a : F p, a.val < 256 → a.val = (x.val + y.val + carry_in.val) % 256
+
+  -- TODO: impossible to prove, because a and z are not connected
+  show (z.val < 256) → z.val = (x.val + y.val) % 256
+  sorry
 end Add8
 
 def Main (x y : F p) : Stateful (F p) Unit := do
@@ -759,13 +802,15 @@ def Main (x y : F p) : Stateful (F p) Unit := do
   y.set_next z
 
 
-
-#eval
+#eval!
   let p := 1009
   let p_prime := Fact.mk prime_1009
   let p_non_zero := Fact.mk (by norm_num : p ≠ 0)
   let p_large_enough := Fact.mk (by norm_num : p > 512)
-  let main := Main (x := (20 : F p)) (y := 30)
+  let main := do
+    let x ← witness (fun _ => 10)
+    let y ← witness (fun _ => 20)
+    add8_wrapped (p:=p) (vec [x, y])
   let (_, ops, _) := main.run
   ops
 end
