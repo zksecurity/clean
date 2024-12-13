@@ -525,18 +525,33 @@ where
     constraints_hold (main (const F b))
 
 @[simp]
-def subcircuit_spec (circuit: FormalCircuit F β α) (b_var : β.var) :=
+def subcircuit_spec (circuit: FormalCircuit F β α) (b_var : β.var) (a_var : α.var) :=
   ∀ b : β.value,
-  Provable.eval F b_var = b →
-  circuit.assumptions b →
-  ∃ a : α.value, circuit.spec b a
+    Provable.eval F b_var = b →
+    circuit.assumptions b →
+  ∀ a : α.value,
+    -- (∃ env: ℕ → F, Provable.eval_env env (output (circuit.main b_var)) = a)
+    Provable.eval F a_var = a
+  → circuit.spec b a
 
 def formal_circuit_to_subcircuit
-  (circuit: FormalCircuit F β α) (b_var : β.var) :
-    SpecImplied F (subcircuit_spec circuit b_var) × α.var :=
+  (circuit: FormalCircuit F β α) (b_var : β.var) (a_option : Option α.value) :
+    (a_var: α.var) × SpecImplied F (subcircuit_spec circuit b_var a_var) :=
   open Provable in
   let main := circuit.main b_var
-  let res := main Context.empty
+
+  -- modify `main` so that we optionally force the output variable to have a fixed value
+  let main' := do
+    let a ← main
+    match a_option with
+    | none => return a
+    | some a_v => do
+      let a' ← Provable.witness (fun () => a_v)
+      Provable.assert_equal_silent a a' -- silent, because we don't want to "believe" this equation when proving soundness
+      -- since we can't override the value of `a`, but a real prover can, we want to ignore its value
+      return a'
+
+  let res := main' Context.empty
   -- TODO: weirdly, when we destructure we can't deduce origin of the results anymore
   -- let ((_, ops), a_var) := res
   let ops := res.1.2
@@ -544,46 +559,44 @@ def formal_circuit_to_subcircuit
 
   let flat_ops := Adversarial.to_flat_operations ops
 
-  have s: SpecImplied F (subcircuit_spec circuit b_var) := by
+  have s: SpecImplied F (subcircuit_spec circuit b_var a_var) := by
     use flat_ops
 
     intro env h_holds
     let a: α.value := eval_env env a_var
-    intro b hb assumptions
-    use a
+    intro b hb assumptions a' ha'
 
     suffices h: Adversarial.constraints_hold env main from
       have ha : eval_env env (output main) = a := by
         dsimp [a, output, a_var, res]
-      circuit.soundness b b_var hb assumptions a ⟨ env, ⟨ h, ha ⟩ ⟩
+        sorry
+      -- circuit.soundness b b_var hb assumptions a ⟨ env, ⟨ h, ha ⟩ ⟩
+      sorry
 
     guard_hyp h_holds : PreOperation.constraints_hold env (Adversarial.to_flat_operations ops)
 
-    show Adversarial.constraints_hold_from_list env ops
-    exact Adversarial.can_flatten_first env ops h_holds
+    -- show Adversarial.constraints_hold_from_list env ops
+    -- exact Adversarial.can_flatten_first env ops h_holds
+    sorry
 
-  (s, a_var)
+  ⟨ a_var, s ⟩
 
 -- run a sub-circuit
 @[simp]
 def subcircuit (circuit: FormalCircuit F β α) (b: β.var) := as_stateful (
   fun _ =>
-    let spec := subcircuit_spec circuit b
-    let (subcircuit, a) := formal_circuit_to_subcircuit circuit b
+    let ⟨ a, subcircuit ⟩  := formal_circuit_to_subcircuit circuit b none
+    let spec := subcircuit_spec circuit b a
     (Operation.Circuit ⟨ spec, subcircuit ⟩, a)
 )
 
 @[simp]
-def subcircuit_with_output (a_v: Option α.value) (circuit: FormalCircuit F β α) (b: β.var) := do
-  let a ← subcircuit circuit b
-  -- if a value was provided, replace the output with it
-  match a_v with
-  | none => return a
-  | some a_v => do
-    let a' ← Provable.witness (fun () => a_v)
-    Provable.assert_equal_silent a a' -- silent, because we don't want to "believe" this equation when proving soundness
-    -- since we can't override the value of `a`, but a real prover can, we want to ignore its value
-    return a'
+def subcircuit_with_output (a_v: Option α.value) (circuit: FormalCircuit F β α) (b: β.var) := as_stateful (
+  fun _ =>
+    let ⟨ a, subcircuit ⟩ := formal_circuit_to_subcircuit circuit b a_v
+    let spec := subcircuit_spec circuit b a
+    (Operation.Circuit ⟨ spec, subcircuit ⟩, a)
+)
 end Circuit
 
 
@@ -822,9 +835,6 @@ theorem soundness_wrapped : ∀ x y : F p, -- inputs
 
   dsimp at h
 
-  -- TODO why is there a trailing `∧ True` in `h`?
-  rcases h with ⟨h, (_: True)⟩
-
   -- h is just the `subcircuit_spec` of `Add8Full.circuit`
   -- pass in the input values and a (trivial) proof that they are correct
   have h1 := h (vec [x, y, 0]) rfl
@@ -834,16 +844,19 @@ theorem soundness_wrapped : ∀ x y : F p, -- inputs
     have zero_is_boolean : carry_in = 0 ∨ carry_in = 1 := by tauto
     exact ⟨hx, hy, zero_is_boolean⟩
 
-  have h2 : ∃ a, Add8Full.circuit.spec (vec [x, y, carry_in]) a := h1 assumptions
+  have h2 := h1 assumptions
+
+  -- pass in output value and a (trivial) proof that it's correct
+  have h3 : Add8Full.circuit.spec (vec [x, y, 0]) z := h2 z rfl
 
   -- unfold `Add8Full` statements to show what `h2` is in our context
-  dsimp [Add8Full.circuit, Add8Full.spec] at h2
+  dsimp [Add8Full.circuit, Add8Full.spec] at h3
 
-  guard_hyp h2: ∃ a : F p, a.val < 256 → a.val = (x.val + y.val + carry_in.val) % 256
-
-  -- TODO: impossible to prove, because a and z are not connected
+  -- now the proof is trivial because our spec is almost identical to `Add8Full.spec`
+  guard_hyp h3: z.val < 256 → z.val = (x.val + y.val + carry_in.val) % 256
   show (z.val < 256) → z.val = (x.val + y.val) % 256
-  sorry
+  simp at h3
+  exact h3
 end Add8
 
 def Main (x y : F p) : Stateful (F p) Unit := do
@@ -854,7 +867,6 @@ def Main (x y : F p) : Stateful (F p) Unit := do
   let z ← add8 x y
   x.set_next y
   y.set_next z
-
 
 #eval!
   let p := 1009
