@@ -831,6 +831,9 @@ def circuit : FormalCircuit (F p) (fields (F p) 3) (field (F p)) (fields (F p) 2
     guard_hyp h_add: x + y + carry_in + -1 * z + -1 * (carry_out * 256) = 0
 
     show (z.val < 256) → z.val = (x.val + y.val + carry_in.val) % 256
+
+    -- reuse Boolean.equiv
+    have spec_bool: carry_out = 0 ∨ carry_out = 1 := (Boolean.equiv carry_out).mp h_bool_carry
     sorry
 
   completeness := by
@@ -883,28 +886,6 @@ def add8_wrapped (input : Vector (Expression (F p)) 2) (z: Option (F p) := none)
 
 namespace Add8
 def spec (x y z: F p) := (z.val < 256) → z.val = (x.val + y.val) % 256
-
-theorem soundness : ∀ x y : F p, -- inputs/outputs
-  x.val < 256 → y.val < 256 → -- assumptions
-  ∀ z : F p, -- output
-  (∃ carry : F p, constraints_hold (add8 (const x) (const y) (some z) (some carry))) -- circuit
-  → spec x y z
-:= by
-  -- simplify
-  intro x y hx hy z ⟨carry, h⟩
-  dsimp at h
-  dsimp [spec]
-
-  guard_hyp h: (carry * (carry + -1 * 1) = 0) ∧ (x + y + -1 * z + -1 * (carry * 256) = 0)
-  show (z.val < 256) → z.val = (x.val + y.val) % 256
-
-  -- proof
-  rcases h with ⟨h_bool, h_add⟩
-
-  -- reuse Boolean.equiv
-  have spec_bool: carry = 0 ∨ carry = 1 := (Boolean.equiv carry).mp h_bool
-
-  sorry
 
 theorem soundness_wrapped : ∀ x y : F p, -- inputs
   x.val < 256 → y.val < 256 → -- assumptions
