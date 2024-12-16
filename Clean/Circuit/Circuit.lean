@@ -730,21 +730,10 @@ def circuit : FormalCircuit (F p) (fields (F p) 3) (field (F p)) (fields (F p) 2
     rintro h_holds z'
 
     -- characterize inputs
-    -- TODO this must be easier!
-    have h_inputs' : vec [x_var.eval, y_var.eval, carry_in_var.eval] = vec [x, y, carry_in] := h_inputs
-
-    have hx : x_var.eval = x := calc x_var.eval
-      _ = (vec [x_var.eval, y_var.eval, carry_in_var.eval]).get ⟨ 0, by norm_num ⟩ := by rfl
-      _ = (vec [x, y, carry_in]).get ⟨ 0, by norm_num ⟩ := by rw [h_inputs']
-      _ = x := by rfl
-    have hy : y_var.eval = y := calc y_var.eval
-      _ = (vec [x_var.eval, y_var.eval, carry_in_var.eval]).get ⟨ 1, by norm_num ⟩ := by rfl
-      _ = (vec [x, y, carry_in]).get ⟨ 1, by norm_num ⟩ := by rw [h_inputs']
-      _ = y := by rfl
-    have hcarry_in : carry_in_var.eval = carry_in := calc carry_in_var.eval
-      _ = (vec [x_var.eval, y_var.eval, carry_in_var.eval]).get ⟨ 2, by norm_num ⟩ := by rfl
-      _ = (vec [x, y, carry_in]).get ⟨ 2, by norm_num ⟩ := by rw [h_inputs']
-      _ = carry_in := by rfl
+    have h_inputs' : [x_var.eval, y_var.eval, carry_in_var.eval] = [x, y, carry_in] := by injection h_inputs
+    injection h_inputs' with hx h_inputs'
+    injection h_inputs' with hy h_inputs'
+    injection h_inputs' with hcarry_in
 
     -- characterize output, z' to equal (witness input) z, and replace in spec
     have hz : z' = z := rfl
@@ -781,20 +770,10 @@ def circuit : FormalCircuit (F p) (fields (F p) 3) (field (F p)) (fields (F p) 2
     rintro as
 
     -- characterize inputs
-    have h_inputs' : vec [x_var.eval, y_var.eval, carry_in_var.eval] = vec [x, y, carry_in] := h_inputs
-
-    have hx : x_var.eval = x := calc x_var.eval
-      _ = (vec [x_var.eval, y_var.eval, carry_in_var.eval]).get ⟨ 0, by norm_num ⟩ := by rfl
-      _ = (vec [x, y, carry_in]).get ⟨ 0, by norm_num ⟩ := by rw [h_inputs']
-      _ = x := by rfl
-    have hy : y_var.eval = y := calc y_var.eval
-      _ = (vec [x_var.eval, y_var.eval, carry_in_var.eval]).get ⟨ 1, by norm_num ⟩ := by rfl
-      _ = (vec [x, y, carry_in]).get ⟨ 1, by norm_num ⟩ := by rw [h_inputs']
-      _ = y := by rfl
-    have hcarry_in : carry_in_var.eval = carry_in := calc carry_in_var.eval
-      _ = (vec [x_var.eval, y_var.eval, carry_in_var.eval]).get ⟨ 2, by norm_num ⟩ := by rfl
-      _ = (vec [x, y, carry_in]).get ⟨ 2, by norm_num ⟩ := by rw [h_inputs']
-      _ = carry_in := by rfl
+    have h_inputs' : [x_var.eval, y_var.eval, carry_in_var.eval] = [x, y, carry_in] := by injection h_inputs
+    injection h_inputs' with hx h_inputs'
+    injection h_inputs' with hy h_inputs'
+    injection h_inputs' with hcarry_in
 
     -- simplify assumptions
     dsimp [assumptions] at as
@@ -845,16 +824,9 @@ def soundness_wrapped (inputs: Vector (F p) 2) (inputs_var: Vector (Expression (
   intro z'
 
   -- characterize inputs
-  have h_inputs' : vec [x_var.eval, y_var.eval] = vec [x, y] := h_inputs
-
-  have hx : x_var.eval = x := calc x_var.eval
-    _ = (vec [x_var.eval, y_var.eval]).get ⟨ 0, by norm_num ⟩ := by rfl
-    _ = (vec [x, y]).get ⟨ 0, by norm_num ⟩ := by rw [h_inputs']
-    _ = x := by rfl
-  have hy : y_var.eval = y := calc y_var.eval
-    _ = (vec [x_var.eval, y_var.eval]).get ⟨ 1, by norm_num ⟩ := by rfl
-    _ = (vec [x, y]).get ⟨ 1, by norm_num ⟩ := by rw [h_inputs']
-    _ = y := by rfl
+  have h_inputs' : [x_var.eval, y_var.eval] = [x, y] := by injection h_inputs
+  injection h_inputs' with hx h_inputs'
+  injection h_inputs' with hy
 
   -- characterize output, z' to equal (witness input) z, and replace in spec
   have hz : z' = z := by rfl
@@ -897,16 +869,9 @@ def circuit : FormalCircuit (F p) (fields (F p) 2) (field (F p)) (field (F p)) w
     rintro as
 
     -- characterize inputs
-    have h_inputs' : vec [x_var.eval, y_var.eval] = vec [x, y] := h_inputs
-
-    have hx : x_var.eval = x := calc x_var.eval
-      _ = (vec [x_var.eval, y_var.eval]).get ⟨ 0, by norm_num ⟩ := by rfl
-      _ = (vec [x, y]).get ⟨ 0, by norm_num ⟩ := by rw [h_inputs']
-      _ = x := by rfl
-    have hy : y_var.eval = y := calc y_var.eval
-      _ = (vec [x_var.eval, y_var.eval]).get ⟨ 1, by norm_num ⟩ := by rfl
-      _ = (vec [x, y]).get ⟨ 1, by norm_num ⟩ := by rw [h_inputs']
-      _ = y := by rfl
+    have h_inputs' : [x_var.eval, y_var.eval] = [x, y] := by injection h_inputs
+    injection h_inputs' with hx h_inputs'
+    injection h_inputs' with hy
 
     -- simplify assumptions
     dsimp [assumptions] at as
