@@ -417,9 +417,11 @@ where
 
   soundness:
     -- for all inputs that satisfy the assumptions
-    ∀ b : β.value, ∀ b_var : β.var, Provable.eval F b_var = b → assumptions b →
+    ∀ b : β.value, assumptions b →
     -- for all locally witnessed values
     ∀ env: ℕ → F,
+    -- assuming input variables that evaluate to the inputs
+    ∀ b_var : β.var, Provable.eval_env env b_var = b →
     -- if the constraints hold
     Adversarial.constraints_hold env (main b_var none) →
     -- the the spec holds on the output
@@ -724,31 +726,33 @@ def circuit : FormalCircuit (F p) (fields (F p) 3) (field (F p)) (fields (F p) 2
   spec := spec
   soundness := by
     -- introductions
-    rintro ⟨ inputs, _ ⟩ ⟨ inputs_var, _ ⟩ h_inputs
+    rintro ⟨ inputs, _ ⟩ as env ⟨ inputs_var, _ ⟩ h_inputs
     let [x, y, carry_in] := inputs
     let [x_var, y_var, carry_in_var] := inputs_var
-    rintro as env
     -- let [z, carry_out] := witnesses
     rintro h_holds z'
 
     -- characterize inputs
-    have h_inputs' : [x_var.eval, y_var.eval, carry_in_var.eval] = [x, y, carry_in] := by injection h_inputs
-    injection h_inputs' with hx h_inputs'
-    injection h_inputs' with hy h_inputs'
-    injection h_inputs' with hcarry_in
+    injection h_inputs with h_inputs
+    injection h_inputs with hx h_inputs
+    injection h_inputs with hy h_inputs
+    injection h_inputs with hcarry_in h_inputs
+    dsimp at hx hy hcarry_in
+    guard_hyp hx : x_var.eval_env env = x
+    guard_hyp hy : y_var.eval_env env = y
+    guard_hyp hcarry_in : carry_in_var.eval_env env = carry_in
 
-    -- we use a trick to get Lean to compute the actual parts of `h_holds` for us!
+    -- we use a trick to get Lean to display the actual parts of `h_holds` for us!
     have h_holds: _ ∧ _ ∧ _  := h_holds
     dsimp at h_holds
     let z := env 0
     let carry_out := env 1
     rw [←(by rfl : z = env 0), ←(by rfl : carry_out = env 1)] at h_holds
     rw [hx, hy, hcarry_in] at h_holds
-    sorry
-
-/-
-    rw [hx, hy, hcarry_in] at h_holds
     let ⟨ h_byte, h_bool_carry, h_add ⟩ := h_holds
+
+    -- characterize output and replace in spec
+    rw [(by rfl : z' = z)]
 
     -- simplify assumptions and spec
     dsimp [spec]
@@ -767,7 +771,7 @@ def circuit : FormalCircuit (F p) (fields (F p) 3) (field (F p)) (fields (F p) 2
     -- reuse ByteTable.soundness
     have h_byte': z.val < 256 := ByteTable.soundness z h_byte
     sorry
--/
+
 
   completeness := by
     -- introductions
