@@ -436,11 +436,12 @@ where
 
 @[simp]
 def subcircuit_soundness (circuit: FormalCircuit F β α γ) (b_var : β.var) (a_var : α.var) :=
+  ∀ env: ℕ → F,
   ∀ b : β.value,
-    Provable.eval F b_var = b →
+    Provable.eval_env env b_var = b →
     circuit.assumptions b →
   ∀ a : α.value,
-    Provable.eval F a_var = a
+    Provable.eval_env env a_var = a
   → circuit.spec b a
 
 @[simp]
@@ -821,57 +822,51 @@ def assumptions (input : Vector (F p) 2) :=
   let ⟨ [x, y], _ ⟩ := input
   x.val < 256 ∧ y.val < 256
 
-def soundness_wrapped (inputs: Vector (F p) 2) (inputs_var: Vector (Expression (F p)) 2)
-    (h_inputs: (Provable.eval (F p) (α:=(fields (F p) 2)) inputs_var) = inputs)
-    (as: assumptions inputs)
-    (z: (F p))
-    (h: constraints_hold (add8_wrapped inputs_var (some z))) :
-    let z' := Provable.eval (F p) (output (add8_wrapped inputs_var (some z)))
-    spec inputs z'
-  := by
-  -- finish introductions
-  let ⟨ [x, y], _ ⟩ := inputs
-  let ⟨ [x_var, y_var], _ ⟩ := inputs_var
-  intro z'
-
-  -- characterize inputs
-  have h_inputs' : [x_var.eval, y_var.eval] = [x, y] := by injection h_inputs
-  injection h_inputs' with hx h_inputs'
-  injection h_inputs' with hy
-
-  -- characterize output, z' to equal (witness input) z, and replace in spec
-  have hz : z' = z := by rfl
-  rw [hz]
-
-  -- simplify constraints hypothesis
-  dsimp at h
-
-  -- h is just `subcircuit_soundness` of `Add8Full.circuit`
-  -- pass in the input values and a proof that they are correct
-  have h_inputs'' : vec [x_var.eval, y_var.eval, 0] = vec [x, y, 0] := by rw [hx, hy]
-  specialize h (vec [x, y, 0]) h_inputs''
-
-  -- satisfy `Add8Full.assumptions` by using our own assumptions
-  let ⟨ asx, asy ⟩ := as
-  have as': Add8Full.assumptions (vec [x, y, 0]) := ⟨asx, asy, by tauto⟩
-  specialize h as'
-
-  -- pass in output value and a (trivial) proof that it's correct
-  specialize h z rfl
-  guard_hyp h: Add8Full.circuit.spec (vec [x, y, 0]) z
-
-  -- unfold `Add8Full` statements to show what the hypothesis is in our context
-  dsimp [Add8Full.circuit, Add8Full.spec] at h
-  guard_hyp h: z.val = (x.val + y.val + (0 : F p).val) % 256
-
-  simp at h
-  exact h
-
 def circuit : FormalCircuit (F p) (fields (F p) 2) (field (F p)) (field (F p)) where
   main := add8_wrapped
   assumptions := assumptions
   spec := spec
-  soundness := sorry --soundness_wrapped
+  soundness := by
+    -- introductions
+    rintro ⟨ inputs, _ ⟩ as env ⟨ inputs_var, _ ⟩ h_inputs
+    let [x, y] := inputs
+    let [x_var, y_var] := inputs_var
+    intro h_holds z
+
+    -- characterize inputs
+    injection h_inputs with h_inputs
+    injection h_inputs with hx h_inputs
+    injection h_inputs with hy h_inputs
+    dsimp at hx hy
+
+    -- simplify constraints hypothesis
+    -- we know it must be just the `subcircuit_soundness` of `Add8Full.circuit`
+    -- so it starts with a ∀ quantifier
+    have h_holds : ∀ env, _ := h_holds
+    dsimp at h_holds
+    specialize h_holds env
+
+    -- h is just `subcircuit_soundness` of `Add8Full.circuit`
+    -- pass in the input values and a proof that they are correct
+    have h_inputs' : vec [x_var.eval_env env, y_var.eval_env env, 0] = vec [x, y, 0] := by rw [hx, hy]
+    specialize h_holds (vec [x, y, 0]) h_inputs'
+
+    -- satisfy `Add8Full.assumptions` by using our own assumptions
+    let ⟨ asx, asy ⟩ := as
+    have as': Add8Full.assumptions (vec [x, y, 0]) := ⟨asx, asy, by tauto⟩
+    specialize h_holds as'
+
+    -- pass in output value and a (trivial) proof that it's correct
+    specialize h_holds z rfl
+    guard_hyp h_holds: Add8Full.circuit.spec (vec [x, y, 0]) z
+
+    -- unfold `Add8Full` statements to show what the hypothesis is in our context
+    dsimp [Add8Full.circuit, Add8Full.spec] at h_holds
+    guard_hyp h_holds: z.val = (x.val + y.val + (0 : F p).val) % 256
+
+    simp at h_holds
+    exact h_holds
+
   completeness := by
     -- introductions
     rintro ⟨ inputs, _ ⟩ ⟨ inputs_var, _ ⟩ h_inputs
