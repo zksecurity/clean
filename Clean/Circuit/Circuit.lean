@@ -8,16 +8,13 @@ import Clean.Circuit.Provable
 namespace Circuit
 variable {F: Type}
 
-instance [Repr F] {n: ℕ} : Repr (Vector F n) where
-  reprPrec l _ := repr l.val
-
 structure Table (F : Type) where
   name: String
   length: ℕ
   arity: ℕ
   row: Fin length → Vector F arity
 
-def Table.contains (table: Table F) (row: Vector F table.arity) := ∃ i, row = table.row i
+def Table.contains (table: Table F) row := ∃ i, row = table.row i
 
 structure Lookup (F : Type) where
   table: Table F
@@ -78,9 +75,24 @@ end PreOperation
 
 -- this type models a subcircuit: a list of operations that imply a certain spec,
 -- for all traces that satisfy the constraints
-structure SpecImplied (F: Type) [Field F] (spec: Prop) where
+structure SubCircuit (F: Type) [Field F]
+  {input_size: ℕ} {output_size: ℕ}
+  (spec: (Vector F input_size) → (Vector F output_size) → Prop)
+where
   ops: List (PreOperation F)
-  imply_spec: ∀ env, PreOperation.constraints_hold env ops → spec
+
+  input: Vector (Expression F) input_size
+  assumptions: Vector (Expression F) input_size → Prop
+  output: Vector (Expression F) output_size
+
+  imply_spec:
+    ∀ input_value : Vector F input_size, assumptions input →
+    ∀ output_value : Vector F output_size,
+    ∀ env : ℕ → F,
+    input.map (Expression.eval_env env) = input_value →
+    output.map (Expression.eval_env env) = output_value →
+    PreOperation.constraints_hold env ops →
+    spec input_value output_value
 
 inductive Operation (F : Type) [Field F] where
   | Witness : (compute : Unit → F) → Operation F
@@ -90,7 +102,7 @@ inductive Operation (F : Type) [Field F] where
   | SilentAssert : Expression F → Operation F
   | Lookup : Lookup F → Operation F
   | Assign : Cell F × Variable F → Operation F
-  | Circuit : (Σ (s : Prop), SpecImplied F s) → Operation F
+  | Circuit : (Σ s, SubCircuit F s) → Operation F
 namespace Operation
 
 @[simp]
@@ -421,7 +433,7 @@ def subcircuit_spec (circuit: FormalCircuit F β α γ) (b_var : β.var) (a_var 
 
 def formal_circuit_to_subcircuit
   (circuit: FormalCircuit F β α γ) (b_var : β.var) (a_option : Option α.value) :
-    (a_var: α.var) × SpecImplied F (subcircuit_spec circuit b_var a_var) :=
+    (a_var: α.var) × SubCircuit F (subcircuit_spec circuit b_var a_var) :=
   let main := circuit.main b_var none -- TODO
 
   -- modify `main` so that we optionally force the output variable to have a fixed value
@@ -443,7 +455,7 @@ def formal_circuit_to_subcircuit
 
   let flat_ops := Adversarial.to_flat_operations ops
 
-  have s: SpecImplied F (subcircuit_spec circuit b_var a_var) := by
+  have s: SubCircuit F (subcircuit_spec circuit b_var a_var) := by
     use flat_ops
 
     intro env h_holds

@@ -4,6 +4,9 @@ variable {α β : Type} {n : ℕ}
 
 def Vector (α : Type) (n: ℕ) := { l: List α // l.length = n }
 
+instance [Repr α] {n: ℕ} : Repr (Vector α n) where
+  reprPrec l _ := repr l.val
+
 @[reducible]
 def vec (l: List α) : Vector α l.length := ⟨ l, rfl ⟩
 
