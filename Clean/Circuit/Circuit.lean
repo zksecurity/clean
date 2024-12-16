@@ -844,7 +844,7 @@ def soundness_wrapped (inputs: Vector (F p) 2) (inputs_var: Vector (Expression (
   specialize h as'
 
   -- pass in output value and a (trivial) proof that it's correct
-  specialize h z hz
+  specialize h z rfl
   guard_hyp h: Add8Full.circuit.spec (vec [x, y, 0]) z
 
   -- unfold `Add8Full` statements to show what the hypothesis is in our context
