@@ -349,14 +349,12 @@ def passes_constraint_checks_from_list [Field F] : List (Operation F) → Prop
     | Operation.Assert e => e.eval = 0
     | Operation.Lookup { table, entry, index := _ } =>
         table.contains (entry.map Expression.eval)
-    -- TODO we need to refactor Circuit to have a notion of input/assumptions
     | Operation.Circuit ⟨ _, completeness, _ ⟩ => completeness
     | _ => True
   | op :: ops => match op with
     | Operation.Assert e => (e.eval = 0) ∧ passes_constraint_checks_from_list ops
     | Operation.Lookup { table, entry, index := _ } =>
         table.contains (entry.map Expression.eval) ∧ passes_constraint_checks_from_list ops
-    -- TODO we need to refactor Circuit to have a notion of input/assumptions
     | Operation.Circuit ⟨ _, completeness, _ ⟩ => completeness ∧ passes_constraint_checks_from_list ops
     | _ => passes_constraint_checks_from_list ops
 
