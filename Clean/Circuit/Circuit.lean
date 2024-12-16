@@ -154,6 +154,10 @@ def Stateful.run (circuit: Stateful F α) : List (Operation F) × α :=
   let ((_, ops), a) := circuit Context.empty
   (ops, a)
 
+@[reducible]
+def Stateful.operations (circuit: Stateful F α) : List (Operation F) :=
+  (circuit Context.empty).1.2
+
 @[simp]
 def as_stateful (f: Context F → Operation F × α) : Stateful F α := fun ctx  =>
   let (op, a) := f ctx
@@ -265,9 +269,9 @@ namespace Adversarial
       | Operation.Circuit ⟨ soundness, _, _ ⟩ => soundness ∧ constraints_hold_from_list env ops
       | _ => constraints_hold_from_list env ops
 
-  @[simp]
-  def constraints_hold [Field F] (env: (ℕ → F)) (circuit: Stateful F α)   : Prop :=
-    constraints_hold_from_list env (circuit Context.empty).1.2
+  @[reducible]
+  def constraints_hold [Field F] (env: (ℕ → F)) (circuit: Stateful F α) : Prop :=
+    constraints_hold_from_list env circuit.operations
 
   def to_flat_operations [Field F] (ops: List (Operation F)) : List (PreOperation F) :=
   match ops with
@@ -415,11 +419,11 @@ where
     -- for all inputs that satisfy the assumptions
     ∀ b : β.value, ∀ b_var : β.var, Provable.eval F b_var = b → assumptions b →
     -- for all locally witnessed values
-    ∀ c: γ.value,
+    ∀ env: ℕ → F,
     -- if the constraints hold
-    constraints_hold (main b_var (some c)) →
+    Adversarial.constraints_hold env (main b_var none) →
     -- the the spec holds on the output
-    let a := Provable.eval F (output (main b_var (some c)))
+    let a := Provable.eval_env env (output (main b_var none))
     spec b a
 
   completeness: open Provable in
@@ -723,8 +727,8 @@ def circuit : FormalCircuit (F p) (fields (F p) 3) (field (F p)) (fields (F p) 2
     rintro ⟨ inputs, _ ⟩ ⟨ inputs_var, _ ⟩ h_inputs
     let [x, y, carry_in] := inputs
     let [x_var, y_var, carry_in_var] := inputs_var
-    rintro as ⟨ witnesses, _ ⟩
-    let [z, carry_out] := witnesses
+    rintro as env
+    -- let [z, carry_out] := witnesses
     rintro h_holds z'
 
     -- characterize inputs
@@ -733,12 +737,15 @@ def circuit : FormalCircuit (F p) (fields (F p) 3) (field (F p)) (fields (F p) 2
     injection h_inputs' with hy h_inputs'
     injection h_inputs' with hcarry_in
 
-    -- characterize output, z' to equal (witness input) z, and replace in spec
-    have hz : z' = z := rfl
-    rw [hz]
+    -- TODO how do we get Lean to compute `ops` for us? to let us simplify `h_holds`?
+    -- We sure don't want to have to figure out the operations manually and prove that they're correct!
+    let main_result := add8_full (vec [x_var, y_var, carry_in_var]) none Context.empty
+    let ops := main_result.1.2
+    guard_hyp h_holds : Adversarial.constraints_hold_from_list env ops
+    dsimp at ops -- TODO
+    sorry
 
-    -- simplify constraints hypothesis
-    dsimp at h_holds
+/-
     rw [hx, hy, hcarry_in] at h_holds
     let ⟨ h_byte, h_bool_carry, h_add ⟩ := h_holds
 
@@ -759,6 +766,7 @@ def circuit : FormalCircuit (F p) (fields (F p) 3) (field (F p)) (fields (F p) 2
     -- reuse ByteTable.soundness
     have h_byte': z.val < 256 := ByteTable.soundness z h_byte
     sorry
+-/
 
   completeness := by
     -- introductions
@@ -858,7 +866,7 @@ def circuit : FormalCircuit (F p) (fields (F p) 2) (field (F p)) (field (F p)) w
   main := add8_wrapped
   assumptions := assumptions
   spec := spec
-  soundness := soundness_wrapped
+  soundness := sorry --soundness_wrapped
   completeness := by
     -- introductions
     rintro ⟨ inputs, _ ⟩ ⟨ inputs_var, _ ⟩ h_inputs
