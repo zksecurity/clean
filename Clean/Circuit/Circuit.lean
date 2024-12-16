@@ -406,11 +406,11 @@ def assert_equal_silent {F: Type} [Field F] [ProvableType F α] (a a': α.var) :
 end Provable
 
 -- goal: define circuit such that we can provably use it as subcircuit
-structure FormalCircuit (F: Type) (β α γ: TypePair)
-  [Field F] [ProvableType F α] [ProvableType F β] [ProvableType F γ]
+structure FormalCircuit (F: Type) (β α: TypePair)
+  [Field F] [ProvableType F α] [ProvableType F β]
 where
-  -- β = inputs, α = outputs, γ = values of internal witnesses for "instrumenting" the circuit as prover
-  main: β.var → (Option γ.value) → Stateful F α.var
+  -- β = inputs, α = outputs
+  main: β.var → Stateful F α.var
 
   assumptions: β.value → Prop
   spec: β.value → α.value → Prop
@@ -423,19 +423,19 @@ where
     -- assuming input variables that evaluate to the inputs
     ∀ b_var : β.var, Provable.eval_env env b_var = b →
     -- if the constraints hold
-    Adversarial.constraints_hold env (main b_var none) →
+    Adversarial.constraints_hold env (main b_var) →
     -- the the spec holds on the output
-    let a := Provable.eval_env env (output (main b_var none))
+    let a := Provable.eval_env env (output (main b_var))
     spec b a
 
   completeness: open Provable in
     -- for all inputs that satisfy the assumptions
     ∀ b : β.value, ∀ b_var : β.var, Provable.eval F b_var = b → assumptions b →
     -- constraints hold when using the internal witness generator
-    passes_constraint_checks (main b_var none)
+    passes_constraint_checks (main b_var)
 
 @[simp]
-def subcircuit_soundness (circuit: FormalCircuit F β α γ) (b_var : β.var) (a_var : α.var) :=
+def subcircuit_soundness (circuit: FormalCircuit F β α) (b_var : β.var) (a_var : α.var) :=
   ∀ env: ℕ → F,
   ∀ b : β.value,
     Provable.eval_env env b_var = b →
@@ -445,17 +445,17 @@ def subcircuit_soundness (circuit: FormalCircuit F β α γ) (b_var : β.var) (a
   → circuit.spec b a
 
 @[simp]
-def subcircuit_completeness (circuit: FormalCircuit F β α γ) (b_var : β.var) :=
+def subcircuit_completeness (circuit: FormalCircuit F β α) (b_var : β.var) :=
   ∀ b : β.value,
     Provable.eval F b_var = b →
     circuit.assumptions b
 
 def formal_circuit_to_subcircuit
-  (circuit: FormalCircuit F β α γ) (b_var : β.var) (a_option : Option α.value) :
+  (circuit: FormalCircuit F β α) (b_var : β.var) (a_option : Option α.value) :
     (a_var: α.var) ×
     SubCircuit F
     (subcircuit_soundness circuit b_var a_var) (subcircuit_completeness circuit b_var) :=
-  let main := circuit.main b_var none -- TODO
+  let main := circuit.main b_var -- TODO
 
   -- modify `main` so that we optionally force the output variable to have a fixed value
   let main' := do
@@ -509,7 +509,7 @@ def formal_circuit_to_subcircuit
 
 -- run a sub-circuit
 @[simp]
-def subcircuit (circuit: FormalCircuit F β α γ) (b: β.var) := as_stateful (F:=F) (
+def subcircuit (circuit: FormalCircuit F β α) (b: β.var) := as_stateful (F:=F) (
   fun _ =>
     let ⟨ a, subcircuit ⟩ := formal_circuit_to_subcircuit circuit b none
     let soundness := subcircuit_soundness circuit b a
@@ -518,7 +518,7 @@ def subcircuit (circuit: FormalCircuit F β α γ) (b: β.var) := as_stateful (F
 )
 
 @[simp]
-def subcircuit_with_output (a_v: Option α.value) (circuit: FormalCircuit F β α γ) (b: β.var) := as_stateful (F:=F) (
+def subcircuit_with_output (a_v: Option α.value) (circuit: FormalCircuit F β α) (b: β.var) := as_stateful (F:=F) (
   fun _ =>
     let ⟨ a, subcircuit ⟩ := formal_circuit_to_subcircuit (F:=F) circuit b a_v
     let soundness := subcircuit_soundness circuit b a
@@ -696,12 +696,8 @@ def add8 (x y: Expression (F p)) (z carry: Option (F p) := none) := do
   assert_zero (x + y - z - carry * (const 256))
   return z
 
-def add8_full (input : Vector (Expression (F p)) 3) (locals: Option (Vector (F p) 2)) := do
+def add8_full (input : Vector (Expression (F p)) 3) := do
   let ⟨ [x, y, carry_in], _ ⟩ := input
-  -- TODO it's painful to destructure options like this, need a helper that does:
-  -- Monad (Vector α n) -> Vector (Monad α) n
-  let z := do let ⟨ [z, _], _ ⟩ ← locals; return z
-  let carry_out := do let ⟨ [_, carry], _ ⟩ ← locals; return carry
 
   let z ← witness (fun () => mod_256 (x + y + carry_in))
   byte_lookup z
@@ -721,7 +717,7 @@ def spec (input : Vector (F p) 3) (z: F p) :=
   let ⟨ [x, y, carry_in], _ ⟩ := input
   z.val = (x.val + y.val + carry_in.val) % 256
 
-def circuit : FormalCircuit (F p) (fields (F p) 3) (field (F p)) (fields (F p) 2) where
+def circuit : FormalCircuit (F p) (fields (F p) 3) (field (F p)) where
   main := add8_full
   assumptions := assumptions
   spec := spec
@@ -808,9 +804,9 @@ def circuit : FormalCircuit (F p) (fields (F p) 3) (field (F p)) (fields (F p) 2
     sorry
 end Add8Full
 
-def add8_wrapped (input : Vector (Expression (F p)) 2) (z: Option (F p)) := do
+def add8_wrapped (input : Vector (Expression (F p)) 2) := do
   let ⟨ [x, y], _ ⟩ := input
-  let z ← subcircuit_with_output z Add8Full.circuit (vec [x, y, const 0])
+  let z ← subcircuit Add8Full.circuit (vec [x, y, const 0])
   return z
 
 namespace Add8
@@ -822,7 +818,7 @@ def assumptions (input : Vector (F p) 2) :=
   let ⟨ [x, y], _ ⟩ := input
   x.val < 256 ∧ y.val < 256
 
-def circuit : FormalCircuit (F p) (fields (F p) 2) (field (F p)) (field (F p)) where
+def circuit : FormalCircuit (F p) (fields (F p) 2) (field (F p)) where
   main := add8_wrapped
   assumptions := assumptions
   spec := spec
@@ -916,19 +912,7 @@ def Main (x y : F p) : Stateful (F p) Unit := do
   let main := do
     let x ← witness (fun _ => 10)
     let y ← witness (fun _ => 20)
-    add8_wrapped (p:=p) (vec [x, y]) none
+    add8_wrapped (p:=p) (vec [x, y])
   let (ops, _) := main.run
   ops
-
-#eval!
-  let p := 1009
-  let p_prime := Fact.mk prime_1009
-  let p_non_zero := Fact.mk (by norm_num : p ≠ 0)
-  let p_large_enough := Fact.mk (by norm_num : p > 512)
-  let x := const 10
-  let y := const 20
-  let carry_in := const 0
-  let main :=
-    add8_full (p:=p) (vec [x, y, carry_in]) none
-  main.operations
 end
