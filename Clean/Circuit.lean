@@ -392,10 +392,39 @@ def constraints_hold_from_list [Field F] : List (Operation F) → Prop
     | Operation.Circuit ⟨ spec, _, _ ⟩ => spec ∧ constraints_hold_from_list ops
     | _ => constraints_hold_from_list ops
 
+/--
+Weaker version of `constraints_hold_from_list` that captures the statement that, using the default
+witness generator, checking all constraints would not fail.
+
+For subcircuits, since we proved completeness, this only means we need to satisfy the assumptions!
+-/
+@[simp]
+def passes_constraint_checks_from_list [Field F] : List (Operation F) → Prop
+  | [] => True
+  | op :: [] => match op with
+    | Operation.Assert e => e.eval = 0
+    | Operation.Lookup { table, entry, index := _ } =>
+        table.contains (entry.map Expression.eval)
+    -- TODO we need to refactor Circuit to have a notion of input/assumptions
+    | Operation.Circuit ⟨ spec, _ ⟩ => spec
+    | _ => True
+  | op :: ops => match op with
+    | Operation.Assert e => (e.eval = 0) ∧ passes_constraint_checks_from_list ops
+    | Operation.Lookup { table, entry, index := _ } =>
+        table.contains (entry.map Expression.eval) ∧ passes_constraint_checks_from_list ops
+    -- TODO we need to refactor Circuit to have a notion of input/assumptions
+    | Operation.Circuit ⟨ spec, _, _ ⟩ => spec ∧ passes_constraint_checks_from_list ops
+    | _ => passes_constraint_checks_from_list ops
+
 @[simp]
 def constraints_hold (circuit: Stateful F α) : Prop :=
   constraints_hold_from_list (circuit Context.empty).1.2
 
+@[simp]
+def passes_constraint_checks (circuit: Stateful F α) : Prop :=
+  passes_constraint_checks_from_list (circuit Context.empty).1.2
+
+@[simp]
 def output (circuit: Stateful F α) : α :=
   (circuit Context.empty).2
 
@@ -536,7 +565,7 @@ where
     -- for all inputs that satisfy the assumptions
     ∀ b : β.value, ∀ b_var : β.var, eval F b_var = b → assumptions b →
     -- constraints hold when using the internal witness generator
-    constraints_hold (main b_var none)
+    passes_constraint_checks (main b_var none)
 
 @[simp]
 def subcircuit_spec (circuit: FormalCircuit F β α γ) (b_var : β.var) (a_var : α.var) :=
