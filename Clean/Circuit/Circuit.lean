@@ -658,43 +658,9 @@ instance : Coe (Byte (F p)) (Expression (F p)) where
   coe x := x.var
 end Byte
 
-def witness_or_trace_var (trace: Option (ℕ → F p)) (compute : Unit → F p) := as_stateful (fun ctx =>
-  let i := ctx.offset
-    let compute' := fun () => match trace with
-    | none => compute ()
-    | some trace => trace i
-  let var: Variable (F p) := ⟨ i, compute' ⟩
-  (Operation.Witness compute', var)
-)
-def witness_or_value_var (value: Option (F p)) (compute : Unit → F p) := as_stateful (fun ctx =>
-  let i := ctx.offset
-    let compute' := fun () => match value with
-    | none => compute ()
-    | some v => v
-  let var: Variable (F p) := ⟨ i, compute' ⟩
-  (Operation.Witness compute', var)
-)
-
-def witness_or_trace (trace: Option (ℕ → F p)) (compute: Unit → F p) := do
-  let var ← witness_or_trace_var trace compute
-  return Expression.var var
-
-def witness_or_value (value: Option (F p)) (compute: Unit → F p) := do
-  let var ← witness_or_value_var value compute
-  return Expression.var var
-
 variable [Fact (p ≠ 0)]
 
 open Provable (field field2 fields)
-
-def add8 (x y: Expression (F p)) (z carry: Option (F p) := none) := do
-  let z ← witness_or_value z (fun () => mod_256 (x + y))
-  byte_lookup z
-  let carry ← witness_or_value carry (fun () => floordiv (x + y) 256)
-  assert_bool carry
-
-  assert_zero (x + y - z - carry * (const 256))
-  return z
 
 def add8_full (input : Vector (Expression (F p)) 3) := do
   let ⟨ [x, y, carry_in], _ ⟩ := input
@@ -894,15 +860,6 @@ def circuit : FormalCircuit (F p) (fields (F p) 2) (field (F p)) where
     exact ⟨ asx, asy, by tauto ⟩
 
 end Add8
-
-def Main (x y : F p) : Stateful (F p) Unit := do
-  -- in a real AIR definition, these could be inputs to every step
-  let x ← create_input x 0
-  let y ← create_input y 1
-
-  let z ← add8 x y
-  x.set_next y
-  y.set_next z
 
 #eval!
   let p := 1009
