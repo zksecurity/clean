@@ -2,87 +2,11 @@ import Mathlib.Algebra.Field.Basic
 import Mathlib.Data.ZMod.Basic
 import Clean.Utils.Primes
 import Clean.Utils.Vector
+import Clean.Circuit.Expression
+import Clean.Circuit.Provable
 
 namespace Circuit
 variable {F: Type}
-
-structure Variable (F : Type) where
-  index: ℕ
-  witness: Unit → F
-
-instance : Repr (Variable F) where
-  reprPrec v _ := "x" ++ repr v.index
-
-inductive Expression (F : Type) where
-  | var : Variable F -> Expression F
-  | const : F -> Expression F
-  | add : Expression F -> Expression F -> Expression F
-  | mul : Expression F -> Expression F -> Expression F
-
-namespace Expression
-variable [Field F]
-
-@[simp]
-def eval : Expression F → F
-  | var v => v.witness ()
-  | const c => c
-  | add x y => eval x + eval y
-  | mul x y => eval x * eval y
-
-/--
-Evaluate expression given an external `environment` that determines the assignment
-of all variables.
-
-This is needed when we want to make statements about a circuit in the adversarial
-situation where the prover can assign anything to variables.
--/
-@[simp]
-def eval_env (env: ℕ → F) : Expression F → F
-  | var v => env v.index
-  | const c => c
-  | add x y => eval_env env x + eval_env env y
-  | mul x y => eval_env env x * eval_env env y
-
-def toString [Repr F] : Expression F → String
-  | var v => "x" ++ reprStr v.index
-  | const c => reprStr c
-  | add x y => "(" ++ toString x ++ " + " ++ toString y ++ ")"
-  | mul x y => "(" ++ toString x ++ " * " ++ toString y ++ ")"
-
-instance [Repr F] : Repr (Expression F) where
-  reprPrec e _ := toString e
-
--- combine expressions elegantly
-instance : Zero (Expression F) where
-  zero := const 0
-
-instance : One (Expression F) where
-  one := const 1
-
-instance : Add (Expression F) where
-  add := add
-
-instance : Neg (Expression F) where
-  neg e := mul (const (-1)) e
-
-instance : Sub (Expression F) where
-  sub e₁ e₂ := add e₁ (-e₂)
-
-instance : Mul (Expression F) where
-  mul := mul
-
-instance : Coe F (Expression F) where
-  coe f := const f
-
-instance : Coe (Variable F) (Expression F) where
-  coe x := var x
-
-instance : Coe (Expression F) F where
-  coe x := x.eval
-
-instance : HMul F (Expression F) (Expression F) where
-  hMul := fun f e => mul f e
-end Expression
 
 instance [Repr F] {n: ℕ} : Repr (Vector F n) where
   reprPrec l _ := repr l.val
@@ -428,53 +352,8 @@ def passes_constraint_checks (circuit: Stateful F α) : Prop :=
 def output (circuit: Stateful F α) : α :=
   (circuit Context.empty).2
 
-structure TypePair where
-  var: Type
-  value: Type
-
--- class of types that are composed of variables,
--- and can be evaluated into something that is composed of field elements
-class ProvableType (F: Type) (α: TypePair) where
-  size : ℕ
-  to_vars : α.var → Vector (Expression F) size
-  from_vars : Vector (Expression F) size → α.var
-  to_values : α.value → Vector F size
-  from_values : Vector F size → α.value
-
--- or is it better as a structure?
-structure ProvableType' (F : Type) where
-  var: Type
-  value: Type
-  size : ℕ
-  to_vars : var → Vector (Expression F) size
-  from_vars : Vector (Expression F) size → var
-  to_values : value → Vector F size
-  from_values : Vector F size → value
-
--- or like this?
-def Provable' (F: Type) := { α : TypePair // ∃ p : Type, p = ProvableType F α }
-
 variable {α β γ: TypePair} [ProvableType F α] [ProvableType F β] [ProvableType F γ]
-
 namespace Provable
-@[simp]
-def eval (F: Type) [Field F] [ProvableType F α] (x: α.var) : α.value :=
-  let n := ProvableType.size F α
-  let vars : Vector (Expression F) n := ProvableType.to_vars x
-  let values := vars.map (fun v => v.eval)
-  ProvableType.from_values values
-
-@[simp]
-def eval_env (env: ℕ → F) (x: α.var) : α.value :=
-  let n := ProvableType.size F α
-  let vars : Vector (Expression F) n := ProvableType.to_vars x
-  let values := vars.map (fun v => v.eval_env env)
-  ProvableType.from_values values
-
-def const (F: Type) [ProvableType F α] (x: α.value) : α.var :=
-  let n := ProvableType.size F α
-  let values : Vector F n := ProvableType.to_values x
-  ProvableType.from_vars (values.map (fun v => Expression.const v))
 
 private def witness' := witness (F:=F)
 
@@ -502,42 +381,6 @@ def assert_equal_silent {F: Type} [Field F] [ProvableType F α] (a a': α.var) :
   let vars': Vector (Expression F) n := ProvableType.to_vars a'
   let eqs := (vars.zip vars').map (fun ⟨ x, x' ⟩ => assert_zero_silent (x - x'))
   do let _ ← eqs.mapM
-
-@[reducible]
-def field (F : Type) : TypePair := ⟨ Expression F, F ⟩
-
-instance : ProvableType F (field F) where
-  size := 1
-  to_vars x := vec [x]
-  from_vars v := v.get ⟨ 0, by norm_num ⟩
-  to_values x := vec [x]
-  from_values v := v.get ⟨ 0, by norm_num ⟩
-
-@[reducible]
-def pair (α β : TypePair) : TypePair := ⟨ α.var × β.var, α.value × β.value ⟩
-
-@[reducible]
-def field2 (F : Type) : TypePair := pair (field F) (field F)
-
-instance : ProvableType F (field2 F) where
-  size := 2
-  to_vars pair := vec [pair.1, pair.2]
-  from_vars v := (v.get ⟨ 0, by norm_num ⟩, v.get ⟨ 1, by norm_num ⟩)
-  to_values pair :=vec [pair.1, pair.2]
-  from_values v := (v.get ⟨ 0, by norm_num ⟩, v.get ⟨ 1, by norm_num ⟩)
-
-variable {n: ℕ}
-def vec (α: TypePair) (n: ℕ) : TypePair := ⟨ Vector α.var n, Vector α.value n ⟩
-
-@[reducible]
-def fields (F: Type) (n: ℕ) : TypePair := vec (field F) n
-
-instance : ProvableType F (fields F n) where
-  size := n
-  to_vars x := x
-  from_vars v := v
-  to_values x := x
-  from_values v := v
 end Provable
 
 -- goal: define circuit such that we can provably use it as subcircuit
@@ -550,20 +393,20 @@ where
   assumptions: β.value → Prop
   spec: β.value → α.value → Prop
 
-  soundness: open Provable in
+  soundness:
     -- for all inputs that satisfy the assumptions
-    ∀ b : β.value, ∀ b_var : β.var, eval F b_var = b → assumptions b →
+    ∀ b : β.value, ∀ b_var : β.var, Provable.eval F b_var = b → assumptions b →
     -- for all locally witnessed values
     ∀ c: γ.value,
     -- if the constraints hold
     constraints_hold (main b_var (some c)) →
     -- the the spec holds on the output
-    let a := eval F (output (main b_var (some c)))
+    let a := Provable.eval F (output (main b_var (some c)))
     spec b a
 
   completeness: open Provable in
     -- for all inputs that satisfy the assumptions
-    ∀ b : β.value, ∀ b_var : β.var, eval F b_var = b → assumptions b →
+    ∀ b : β.value, ∀ b_var : β.var, Provable.eval F b_var = b → assumptions b →
     -- constraints hold when using the internal witness generator
     passes_constraint_checks (main b_var none)
 
@@ -579,7 +422,6 @@ def subcircuit_spec (circuit: FormalCircuit F β α γ) (b_var : β.var) (a_var 
 def formal_circuit_to_subcircuit
   (circuit: FormalCircuit F β α γ) (b_var : β.var) (a_option : Option α.value) :
     (a_var: α.var) × SpecImplied F (subcircuit_spec circuit b_var a_var) :=
-  open Provable in
   let main := circuit.main b_var none -- TODO
 
   -- modify `main` so that we optionally force the output variable to have a fixed value
@@ -605,11 +447,11 @@ def formal_circuit_to_subcircuit
     use flat_ops
 
     intro env h_holds
-    let a: α.value := eval_env env a_var
+    let a: α.value := Provable.eval_env env a_var
     intro b hb assumptions a' ha'
 
     suffices h: Adversarial.constraints_hold env main from
-      have ha : eval_env env (output main) = a := by
+      have ha : Provable.eval_env env (output main) = a := by
         dsimp [a, output, a_var, res]
         sorry
       -- circuit.soundness b b_var hb assumptions a ⟨ env, ⟨ h, ha ⟩ ⟩
@@ -644,7 +486,7 @@ end Circuit
 
 section -- examples
 open Circuit
-open Circuit.Expression (const)
+open Expression (const)
 
 -- general Fp helpers
 variable {p: ℕ} [Fact p.Prime]
