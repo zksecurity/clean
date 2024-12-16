@@ -91,7 +91,9 @@ structure Table (F : Type) where
   name: String
   length: ℕ
   arity: ℕ
-  row: Fin length → { l: List F // l.length = arity }
+  row: Fin length → Vector F arity
+
+def Table.contains (table: Table F) (row: Vector F table.arity) := ∃ i, row = table.row i
 
 structure Lookup (F : Type) where
   table: Table F
@@ -139,10 +141,14 @@ def toString [Repr F] : (op : PreOperation F) → String
 def constraints_hold (env: ℕ → F) : List (PreOperation F) → Prop
   | [] => True
   | op :: [] => match op with
-    | PreOperation.Assert e => (e.eval_env env) = 0
+    | Assert e => (e.eval_env env) = 0
+    | Lookup { table, entry, index := _ } =>
+      table.contains (entry.map (fun e => e.eval_env env))
     | _ => True
   | op :: ops => match op with
     | PreOperation.Assert e => ((e.eval_env env) = 0) ∧ constraints_hold env ops
+    | Lookup { table, entry, index := _ } =>
+      table.contains (entry.map (fun e => e.eval_env env)) ∧ constraints_hold env ops
     | _ => constraints_hold env ops
 end PreOperation
 
@@ -304,10 +310,14 @@ namespace Adversarial
     | [] => True
     | op :: [] => match op with
       | Operation.Assert e => (e.eval_env env) = 0
+      | Operation.Lookup { table, entry, index := _ } =>
+        table.contains (entry.map (fun e => e.eval_env env))
       | Operation.Circuit ⟨ spec, _ ⟩ => spec
       | _ => True
     | op :: ops => match op with
       | Operation.Assert e => ((e.eval_env env) = 0) ∧ constraints_hold_from_list env ops
+      | Operation.Lookup { table, entry, index := _ } =>
+        table.contains (entry.map (fun e => e.eval_env env)) ∧ constraints_hold_from_list env ops
       | Operation.Circuit ⟨ spec, _ ⟩ => spec ∧ constraints_hold_from_list env ops
       | _ => constraints_hold_from_list env ops
 
@@ -357,6 +367,7 @@ namespace Adversarial
             · exact h_pre
             · sorry
             · simp
+            · simp
           have ih1 := ih h1
           simp [ih1]
         | Lookup l => sorry
@@ -370,10 +381,14 @@ def constraints_hold_from_list [Field F] : List (Operation F) → Prop
   | [] => True
   | op :: [] => match op with
     | Operation.Assert e => e.eval = 0
+    | Operation.Lookup { table, entry, index := _ } =>
+        table.contains (entry.map Expression.eval)
     | Operation.Circuit ⟨ spec, _ ⟩ => spec
     | _ => True
   | op :: ops => match op with
     | Operation.Assert e => (e.eval = 0) ∧ constraints_hold_from_list ops
+    | Operation.Lookup { table, entry, index := _ } =>
+        table.contains (entry.map Expression.eval) ∧ constraints_hold_from_list ops
     | Operation.Circuit ⟨ spec, _, _ ⟩ => spec ∧ constraints_hold_from_list ops
     | _ => constraints_hold_from_list ops
 
@@ -392,10 +407,8 @@ structure TypePair where
 -- and can be evaluated into something that is composed of field elements
 class ProvableType (F: Type) (α: TypePair) where
   size : ℕ
-
   to_vars : α.var → Vector (Expression F) size
   from_vars : Vector (Expression F) size → α.var
-
   to_values : α.value → Vector F size
   from_values : Vector F size → α.value
 
@@ -404,10 +417,8 @@ structure ProvableType' (F : Type) where
   var: Type
   value: Type
   size : ℕ
-
   to_vars : var → Vector (Expression F) size
   from_vars : Vector (Expression F) size → var
-
   to_values : value → Vector F size
   from_values : Vector F size → value
 
@@ -618,6 +629,11 @@ def create (n: ℕ) (lt: n < p) : F p :=
   | 0 => False.elim (Nat.not_lt_zero n lt)
   | _ + 1 => ⟨ n, lt ⟩
 
+theorem create_eq {n: ℕ} {lt: n < p} (x : F p) (hx: x = create n lt) : x.val = n := by
+  cases p
+  · exact False.elim (Nat.not_lt_zero n lt)
+  · rw [hx]; rfl
+
 def less_than_p [p_pos: Fact (p ≠ 0)] (x: F p) : x.val < p := by
   rcases p
   · have : 0 ≠ 0 := p_pos.elim; tauto
@@ -693,6 +709,14 @@ def ByteTable : Table (F p) where
   length := 256
   arity := 1
   row i := vec [from_byte i]
+
+def ByteTable.soundness (x: F p) : ByteTable.contains (vec [x]) → x.val < 256 := by
+  dsimp [Table.contains, ByteTable]
+  rintro ⟨ i, h: vec [x] = vec [from_byte i] ⟩
+  have h' : x = from_byte i := by repeat injection h with h
+  have h'' : x.val = i.val := create_eq x h'
+  rw [h'']
+  exact i.is_lt
 
 def byte_lookup (x: Expression (F p)) := lookup {
   table := ByteTable
@@ -780,7 +804,7 @@ def assumptions (input : Vector (F p) 3) :=
 
 def spec (input : Vector (F p) 3) (z: F p) :=
   let ⟨ [x, y, carry_in], _ ⟩ := input
-  (z.val < 256) → z.val = (x.val + y.val + carry_in.val) % 256
+  z.val = (x.val + y.val + carry_in.val) % 256
 
 def circuit : FormalCircuit (F p) (fields (F p) 3) (field (F p)) (fields (F p) 2) where
   main := add8_full
@@ -819,7 +843,7 @@ def circuit : FormalCircuit (F p) (fields (F p) 3) (field (F p)) (fields (F p) 2
     -- simplify constraints hypothesis
     dsimp at h_holds
     rw [hx, hy, hcarry_in] at h_holds
-    let ⟨ h_bool_carry, h_add ⟩ := h_holds
+    let ⟨ h_byte, h_bool_carry, h_add ⟩ := h_holds
 
     -- simplify assumptions and spec
     dsimp [spec]
@@ -827,13 +851,16 @@ def circuit : FormalCircuit (F p) (fields (F p) 3) (field (F p)) (fields (F p) 2
 
     -- now it's just mathematics!
     guard_hyp as : x.val < 256 ∧ y.val < 256 ∧ (carry_in = 0 ∨ carry_in = 1)
+    guard_hyp h_byte: ByteTable.contains (vec [z])
     guard_hyp h_bool_carry: carry_out * (carry_out + -1 * 1) = 0
     guard_hyp h_add: x + y + carry_in + -1 * z + -1 * (carry_out * 256) = 0
 
-    show (z.val < 256) → z.val = (x.val + y.val + carry_in.val) % 256
+    show z.val = (x.val + y.val + carry_in.val) % 256
 
     -- reuse Boolean.equiv
-    have spec_bool: carry_out = 0 ∨ carry_out = 1 := (Boolean.equiv carry_out).mp h_bool_carry
+    have h_bool_carry': carry_out = 0 ∨ carry_out = 1 := (Boolean.equiv carry_out).mp h_bool_carry
+    -- reuse ByteTable.soundness
+    have h_byte': z.val < 256 := ByteTable.soundness z h_byte
     sorry
 
   completeness := by
@@ -873,9 +900,10 @@ def circuit : FormalCircuit (F p) (fields (F p) 3) (field (F p)) (fields (F p) 2
     -- now it's just mathematics!
     guard_hyp as : x.val < 256 ∧ y.val < 256 ∧ (carry_in = 0 ∨ carry_in = 1)
 
+    let goal_byte := ByteTable.contains (vec [z])
     let goal_bool := carry_out * (carry_out + -1 * 1) = 0
     let goal_add := x + y + carry_in + -1 * z + -1 * (carry_out * 256) = 0
-    show goal_bool ∧ goal_add
+    show goal_byte ∧ goal_bool ∧ goal_add
     sorry
 end Add8Full
 
@@ -887,7 +915,7 @@ def add8_wrapped (input : Vector (Expression (F p)) 2) (z: Option (F p)) := do
 namespace Add8
 def spec (input : Vector (F p) 2) (z: F p) :=
   let ⟨ [x, y], _ ⟩ := input
-  (z.val < 256) → z.val = (x.val + y.val) % 256
+  z.val = (x.val + y.val) % 256
 
 def assumptions (input : Vector (F p) 2) :=
   let ⟨ [x, y], _ ⟩ := input
@@ -940,7 +968,7 @@ def soundness_wrapped (inputs: Vector (F p) 2) (inputs_var: Vector (Expression (
 
   -- unfold `Add8Full` statements to show what the hypothesis is in our context
   dsimp [Add8Full.circuit, Add8Full.spec] at h3
-  guard_hyp h3: z.val < 256 → z.val = (x.val + y.val + (0 : F p).val) % 256
+  guard_hyp h3: z.val = (x.val + y.val + (0 : F p).val) % 256
 
   simp at h3
   exact h3
@@ -983,12 +1011,10 @@ def circuit : FormalCircuit (F p) (fields (F p) 2) (field (F p)) (field (F p)) w
 
     dsimp [Add8Full.circuit, Add8Full.spec, ProvableType.from_values, Vector.get]
     simp
-    rintro hz
 
     -- now it's just mathematics!
     -- TODO but it feels like we're redoing the completeness proof of `Add8Full`?
     guard_hyp as : x.val < 256 ∧ y.val < 256
-    guard_hyp hz: (mod_256 (x + y)).val < 256
     show (mod_256 (x + y)).val = (x.val + y.val) % 256
     sorry
 
