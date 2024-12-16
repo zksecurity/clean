@@ -8,6 +8,7 @@ import Mathlib.NumberTheory.LucasLehmer
 import Clean.Gadgets.Addition8
 import Clean.Gadgets.Equality
 import Clean.Table
+import Clean.Utils.Tactics
 
 section FibonacciTable
 open Expression
@@ -104,7 +105,7 @@ def fibonacciTable : Table 3 M p := {
     · simp
       simp at ih2
       intro lookup_next lookup_curr lookup_rest
-      specialize ih2 lookup_curr lookup_rest
+      specialize_auto ih2
       simp [fullTableConstraintSet.foldl, fib8, TraceOfLength.eval]
       simp [forallList, fullConstraintSet, fullConstraintSet.foldl]
 
@@ -172,7 +173,7 @@ def fibonacciTable : Table 3 M p := {
           := by
           have add_relation := Addition8.equiv 3 M (A curr) (B curr) (B next) (carry curr) trace
           simp [ByteLookup.lookup, TraceOfLength.eval, Addition8.spec] at add_relation
-          specialize add_relation lookup_first lookup_curr lookup_next
+          specialize_auto add_relation
 
           -- and now we reason about fib
           have add_input := And.intro c1 c2
@@ -198,7 +199,7 @@ def fibonacciTable : Table 3 M p := {
 
         have add_relation := Addition8.equiv 3 M (A curr) (B curr) (B next) (carry curr) trace
         simp [ByteLookup.lookup, TraceOfLength.eval, Addition8.spec] at add_relation
-        specialize add_relation lookup_first lookup_curr lookup_next
+        specialize_auto add_relation
 
         nth_rewrite 1 [fib_curr0] at add_relation
         nth_rewrite 1 [fib_curr1] at add_relation
