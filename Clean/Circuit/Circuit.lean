@@ -700,10 +700,10 @@ def add8_full (input : Vector (Expression (F p)) 3) (locals: Option (Vector (F p
   let z := do let ⟨ [z, _], _ ⟩ ← locals; return z
   let carry_out := do let ⟨ [_, carry], _ ⟩ ← locals; return carry
 
-  let z ← witness_or_value z (fun () => mod_256 (x + y + carry_in))
+  let z ← witness (fun () => mod_256 (x + y + carry_in))
   byte_lookup z
 
-  let carry_out ← witness_or_value carry_out (fun () => floordiv (x + y + carry_in) 256)
+  let carry_out ← witness (fun () => floordiv (x + y + carry_in) 256)
   assert_bool carry_out
 
   assert_zero (x + y + carry_in - z - carry_out * (const 256))
@@ -737,12 +737,13 @@ def circuit : FormalCircuit (F p) (fields (F p) 3) (field (F p)) (fields (F p) 2
     injection h_inputs' with hy h_inputs'
     injection h_inputs' with hcarry_in
 
-    -- TODO how do we get Lean to compute `ops` for us? to let us simplify `h_holds`?
-    -- We sure don't want to have to figure out the operations manually and prove that they're correct!
-    let main_result := add8_full (vec [x_var, y_var, carry_in_var]) none Context.empty
-    let ops := main_result.1.2
-    guard_hyp h_holds : Adversarial.constraints_hold_from_list env ops
-    dsimp at ops -- TODO
+    -- we use a trick to get Lean to compute the actual parts of `h_holds` for us!
+    have h_holds: _ ∧ _ ∧ _  := h_holds
+    dsimp at h_holds
+    let z := env 0
+    let carry_out := env 1
+    rw [←(by rfl : z = env 0), ←(by rfl : carry_out = env 1)] at h_holds
+    rw [hx, hy, hcarry_in] at h_holds
     sorry
 
 /-
@@ -919,4 +920,16 @@ def Main (x y : F p) : Stateful (F p) Unit := do
     add8_wrapped (p:=p) (vec [x, y]) none
   let (ops, _) := main.run
   ops
+
+#eval!
+  let p := 1009
+  let p_prime := Fact.mk prime_1009
+  let p_non_zero := Fact.mk (by norm_num : p ≠ 0)
+  let p_large_enough := Fact.mk (by norm_num : p > 512)
+  let x := const 10
+  let y := const 20
+  let carry_in := const 0
+  let main :=
+    add8_full (p:=p) (vec [x, y, carry_in]) none
+  main.operations
 end
