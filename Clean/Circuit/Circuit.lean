@@ -368,7 +368,7 @@ def constraints_hold (circuit: Stateful F α) : Prop :=
 def passes_constraint_checks (circuit: Stateful F α) : Prop :=
   passes_constraint_checks_from_list (circuit Context.empty).1.2
 
-@[simp]
+@[reducible]
 def output (circuit: Stateful F α) : α :=
   (circuit Context.empty).2
 
@@ -857,7 +857,7 @@ def soundness_wrapped (inputs: Vector (F p) 2) (inputs_var: Vector (Expression (
     _ = y := by rfl
 
   -- characterize output, z' to equal (witness input) z, and replace in spec
-  have hz : z' = z := by sorry -- TODO why isn't this rfl anymore
+  have hz : z' = z := by rfl
   rw [hz]
 
   -- simplify constraints hypothesis
