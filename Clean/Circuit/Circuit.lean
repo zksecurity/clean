@@ -922,7 +922,7 @@ def circuit : FormalCircuit (F p) (fields (F p) 2) (field (F p)) (field (F p)) w
 
     -- simplify `Add8Full.assumptions` and prove them easily by using our own assumptions
     dsimp [Add8Full.circuit, Add8Full.assumptions]
-    show ZMod.val x < 256 ∧ ZMod.val y < 256 ∧ (0 = 0 ∨ 0 = 1)
+    show x.val < 256 ∧ y.val < 256 ∧ (0 = 0 ∨ 0 = 1)
     have ⟨ asx, asy ⟩ := as
     exact ⟨ asx, asy, by tauto ⟩
 
