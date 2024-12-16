@@ -504,7 +504,7 @@ def formal_circuit_to_subcircuit
 
 -- run a sub-circuit
 @[simp]
-def subcircuit (circuit: FormalCircuit F β α γ) (b: β.var) := as_stateful (α:=α.var) (F:=F) (
+def subcircuit (circuit: FormalCircuit F β α γ) (b: β.var) := as_stateful (F:=F) (
   fun _ =>
     let ⟨ a, subcircuit ⟩ := formal_circuit_to_subcircuit circuit b none
     let soundness := subcircuit_soundness circuit b a
