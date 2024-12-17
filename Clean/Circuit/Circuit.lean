@@ -93,9 +93,9 @@ structure SubCircuit (F: Type) [Field F]
 where
   ops: List (PreOperation F)
 
-  -- we have a low-level notion of "the constraints hold on these operations"
-  -- for convenience, we allow the framework to transform that into custom
-  -- `soundness` and `completeness` statements (which may involve inputs/outputs, assumptions on inputs, etc)
+  -- we have a low-level notion of "the constraints hold on these operations".
+  -- for convenience, we allow the framework to transform that into custom `soundness`
+  -- and `completeness` statements (which may involve inputs/outputs, assumptions on inputs, etc)
 
   -- `soundness` needs to follow from the constraints for any witness
   imply_soundness : ∀ env, PreOperation.constraints_hold env ops → soundness env
@@ -107,9 +107,6 @@ where
 inductive Operation (F : Type) [Field F] where
   | Witness : (compute : Unit → F) → Operation F
   | Assert : Expression F → Operation F
-  -- an assertion that ends up in the list of constraints, but is IGNORED by `constraints_hold`
-  -- we need this in soundness proofs to weaken our statement, by ignoring witnesses the prover can't override
-  | SilentAssert : Expression F → Operation F
   | Lookup : Lookup F → Operation F
   | Assign : Cell F × Variable F → Operation F
   | Circuit : (Σ soundness : (ℕ → F) → Prop, Σ completeness : Prop, SubCircuit F soundness completeness) → Operation F
@@ -122,7 +119,6 @@ def run (ctx: Context F) : Operation F → Context F
     let offset := ctx.offset + 1
     { ctx with offset, locals := ctx.locals.push var }
   | Assert _ => ctx
-  | SilentAssert _ => ctx
   | Lookup _ => ctx
   | Assign _ => ctx
   | Circuit ⟨ _, _, circuit ⟩ =>
@@ -132,7 +128,6 @@ def run (ctx: Context F) : Operation F → Context F
 def toString [Repr F] : (op : Operation F) → String
   | Witness _v => "Witness"
   | Assert e => "(Assert " ++ reprStr e ++ " == 0)"
-  | SilentAssert e => "(SilentAssert " ++ reprStr e ++ " == 0)"
   | Lookup l => reprStr l
   | Assign (c, v) => "(Assign " ++ reprStr c ++ ", " ++ reprStr v ++ ")"
   | Circuit ⟨ _, _, circuit ⟩ => "(Circuit " ++ reprStr (circuit.ops.map PreOperation.toString) ++ ")"
@@ -184,11 +179,6 @@ def witness (compute : Unit → F) := do
 @[simp]
 def assert_zero (e: Expression F) := as_stateful (
   fun _ => (Operation.Assert e, ())
-)
-
-@[simp]
-def assert_zero_silent (e: Expression F) := as_stateful (
-  fun _ => (Operation.SilentAssert e, ())
 )
 
 -- add a lookup
@@ -312,7 +302,6 @@ def to_flat_operations [Field F] (ops: List (Operation F)) : List (PreOperation 
   | op :: ops => match op with
     | Operation.Witness compute => PreOperation.Witness compute :: to_flat_operations ops
     | Operation.Assert e => PreOperation.Assert e :: to_flat_operations ops
-    | Operation.SilentAssert e => PreOperation.Assert e :: to_flat_operations ops
     | Operation.Lookup l => PreOperation.Lookup l :: to_flat_operations ops
     | Operation.Assign (c, v) => PreOperation.Assign (c, v) :: to_flat_operations ops
     | Operation.Circuit ⟨ _, _, circuit ⟩ => circuit.ops ++ to_flat_operations ops
@@ -338,7 +327,6 @@ theorem can_flatten_first : ∀ (env: ℕ → F) (ops: List (Operation F)),
       cases op with
       | Circuit c => sorry
       | Assert e => sorry
-      | SilentAssert e => sorry
       | Witness c =>
         have h_ops : to_flat_operations (Operation.Witness c :: op' :: ops') = PreOperation.Witness c :: to_flat_operations (op' :: ops') := rfl
         rw [h_ops]
@@ -385,14 +373,6 @@ def assert_equal {F: Type} [Field F] [ProvableType F α] (a a': α.var) : Statef
   let vars: Vector (Expression F) n := ProvableType.to_vars a
   let vars': Vector (Expression F) n := ProvableType.to_vars a'
   let eqs := (vars.zip vars').map (fun ⟨ x, x' ⟩ => assert_zero (x - x'))
-  do let _ ← eqs.mapM
-
-@[simp]
-def assert_equal_silent {F: Type} [Field F] [ProvableType F α] (a a': α.var) : Stateful F Unit :=
-  let n := ProvableType.size F α
-  let vars: Vector (Expression F) n := ProvableType.to_vars a
-  let vars': Vector (Expression F) n := ProvableType.to_vars a'
-  let eqs := (vars.zip vars').map (fun ⟨ x, x' ⟩ => assert_zero_silent (x - x'))
   do let _ ← eqs.mapM
 end Provable
 
