@@ -614,7 +614,6 @@ def circuit : FormalCircuit (F p) (fields (F p) 3) (field (F p)) where
     rintro env ⟨ inputs, _ ⟩ ⟨ inputs_var, _ ⟩ h_inputs as
     let [x, y, carry_in] := inputs
     let [x_var, y_var, carry_in_var] := inputs_var
-    -- let [z, carry_out] := witnesses
     rintro h_holds z'
 
     -- characterize inputs
