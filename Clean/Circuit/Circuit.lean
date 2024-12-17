@@ -136,7 +136,8 @@ instance [Repr F] : ToString (Operation F) where
 end Operation
 
 @[simp]
-def Stateful (F : Type) [Field F] (α : Type) := Context F → (Context F × List (Operation F)) × α
+def Stateful (F : Type) [Field F] (α : Type) :=
+  Context F → (Context F × List (Operation F)) × α
 
 instance : Monad (Stateful F) where
   pure a ctx := ((ctx, []), a)
@@ -153,6 +154,10 @@ def Stateful.run (circuit: Stateful F α) : List (Operation F) × α :=
 @[reducible]
 def Stateful.operations (circuit: Stateful F α) : List (Operation F) :=
   (circuit Context.empty).1.2
+
+@[reducible]
+def output (circuit: Stateful F α) : α :=
+  (circuit Context.empty).2
 
 @[simp]
 def as_stateful (f: Context F → Operation F × α) : Stateful F α := fun ctx  =>
@@ -221,28 +226,6 @@ instance : Coe (InputCell F) (Variable F) where
   coe x := x.var
 
 -- extract information from circuits by running them
-inductive NestedList (α : Type) :=
-  | scalar : α → NestedList α
-  | list : List (NestedList α) → NestedList α
-deriving Repr
-
-def constraints' : List (PreOperation F) → List (NestedList (Expression F))
-  | [] => []
-  | op :: ops => match op with
-    | PreOperation.Assert e => NestedList.scalar e :: constraints' ops
-    | _ => constraints' ops
-
-def constraints : List (Operation F) →  List (NestedList (Expression F))
-  | [] => []
-  | op :: ops => match op with
-    | Operation.Assert e => NestedList.scalar e :: constraints ops
-    | Operation.Circuit circuit => NestedList.list (constraints' circuit.ops) :: constraints ops
-    | _ => constraints ops
-
-def witness_length (circuit : Stateful F α) : ℕ :=
-  let ((ctx, _), _) := circuit Context.empty
-  ctx.locals.size
-
 namespace Adversarial
   @[simp]
   def constraints_hold_from_list [Field F] (env: (ℕ → F)) : List (Operation F) → Prop
@@ -347,10 +330,6 @@ theorem can_flatten : ∀ (ops: List (Operation F)),
 := by
  sorry
 end PreOperation
-
-@[reducible]
-def output (circuit: Stateful F α) : α :=
-  (circuit Context.empty).2
 
 variable {α β γ: TypePair} [ProvableType F α] [ProvableType F β] [ProvableType F γ]
 namespace Provable
@@ -804,6 +783,5 @@ end Add8
     let x ← witness (fun _ => 10)
     let y ← witness (fun _ => 20)
     add8_wrapped (p:=p) (vec [x, y])
-  let (ops, _) := main.run
-  ops
+  main.operations
 end
