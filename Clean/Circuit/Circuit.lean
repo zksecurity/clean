@@ -62,7 +62,7 @@ def toString [Repr F] : (op : PreOperation F) → String
 def constraints_hold (env: ℕ → F) : List (PreOperation F) → Prop
   | [] => True
   | op :: [] => match op with
-    | Assert e => (e.eval_env env) = 0
+    | Assert e => e.eval_env env = 0
     | Lookup { table, entry, index := _ } =>
       table.contains (entry.map (fun e => e.eval_env env))
     | _ => True
@@ -71,46 +71,44 @@ def constraints_hold (env: ℕ → F) : List (PreOperation F) → Prop
     | Lookup { table, entry, index := _ } =>
       table.contains (entry.map (fun e => e.eval_env env)) ∧ constraints_hold env ops
     | _ => constraints_hold env ops
+
+def constraints_hold_default : List (PreOperation F) → Prop
+  | [] => True
+  | op :: [] => match op with
+    | Assert e => e.eval = 0
+    | Lookup { table, entry, index := _ } =>
+      table.contains (entry.map (fun e => e.eval))
+    | _ => True
+  | op :: ops => match op with
+    | PreOperation.Assert e => (e.eval = 0) ∧ constraints_hold_default ops
+    | Lookup { table, entry, index := _ } =>
+      table.contains (entry.map (fun e => e.eval)) ∧ constraints_hold_default ops
+    | _ => constraints_hold_default ops
 end PreOperation
 
 -- this type models a subcircuit: a list of operations that imply a certain spec,
 -- for all traces that satisfy the constraints
-structure SubCircuit (F: Type) [Field F]
-  (soundness: Prop) (completeness: Prop)
-where
+structure SubCircuit (F: Type) [Field F] where
   ops: List (PreOperation F)
 
-  input_size: ℕ
-  output_size: ℕ
-  input: Vector (Expression F) input_size
-  assumptions: Vector F input_size → Prop
-  output: Vector (Expression F) output_size
+  -- we have a low-level notion of "the constraints hold on these operations".
+  -- for convenience, we allow the framework to transform that into custom `soundness`
+  -- and `completeness` statements (which may involve inputs/outputs, assumptions on inputs, etc)
+  soundness : (ℕ → F) → Prop
+  completeness : Prop
 
-  imply_soundness :
-    ∀ input_value : Vector F input_size,
-    ∀ env : ℕ → F,
-    input.map (Expression.eval_env env) = input_value →
-    assumptions input_value →
-    PreOperation.constraints_hold env ops →
-    soundness
+  -- `soundness` needs to follow from the constraints for any witness
+  imply_soundness : ∀ env, PreOperation.constraints_hold env ops → soundness env
 
-  imply_completeness :
-    ∀ input_value : Vector F input_size,
-    ∀ env : ℕ → F,
-    input.map (Expression.eval_env env) = input_value →
-    assumptions input_value →
-    completeness →
-    PreOperation.constraints_hold env ops
+  -- `completeness` needs to imply the constraints using default witnesses
+  implied_by_completeness : completeness → PreOperation.constraints_hold_default ops
 
 inductive Operation (F : Type) [Field F] where
   | Witness : (compute : Unit → F) → Operation F
   | Assert : Expression F → Operation F
-  -- an assertion that ends up in the list of constraints, but is IGNORED by `constraints_hold`
-  -- we need this in soundness proofs to weaken our statement, by ignoring witnesses the prover can't override
-  | SilentAssert : Expression F → Operation F
   | Lookup : Lookup F → Operation F
   | Assign : Cell F × Variable F → Operation F
-  | Circuit : (Σ soundness : Prop, Σ completeness : Prop, SubCircuit F soundness completeness) → Operation F
+  | Circuit : SubCircuit F → Operation F
 namespace Operation
 
 @[simp]
@@ -120,27 +118,26 @@ def run (ctx: Context F) : Operation F → Context F
     let offset := ctx.offset + 1
     { ctx with offset, locals := ctx.locals.push var }
   | Assert _ => ctx
-  | SilentAssert _ => ctx
   | Lookup _ => ctx
   | Assign _ => ctx
-  | Circuit ⟨ _, _, circuit ⟩ =>
-    let offset := ctx.offset + circuit.ops.length
+  | Circuit { ops, .. } =>
+    let offset := ctx.offset + ops.length
     { ctx with offset }
 
 def toString [Repr F] : (op : Operation F) → String
   | Witness _v => "Witness"
   | Assert e => "(Assert " ++ reprStr e ++ " == 0)"
-  | SilentAssert e => "(SilentAssert " ++ reprStr e ++ " == 0)"
   | Lookup l => reprStr l
   | Assign (c, v) => "(Assign " ++ reprStr c ++ ", " ++ reprStr v ++ ")"
-  | Circuit ⟨ _, _, circuit ⟩ => "(Circuit " ++ reprStr (circuit.ops.map PreOperation.toString) ++ ")"
+  | Circuit { ops, .. } => "(Circuit " ++ reprStr (ops.map PreOperation.toString) ++ ")"
 
 instance [Repr F] : ToString (Operation F) where
   toString := toString
 end Operation
 
 @[simp]
-def Stateful (F : Type) [Field F] (α : Type) := Context F → (Context F × List (Operation F)) × α
+def Stateful (F : Type) [Field F] (α : Type) :=
+  Context F → (Context F × List (Operation F)) × α
 
 instance : Monad (Stateful F) where
   pure a ctx := ((ctx, []), a)
@@ -153,6 +150,14 @@ instance : Monad (Stateful F) where
 def Stateful.run (circuit: Stateful F α) : List (Operation F) × α :=
   let ((_, ops), a) := circuit Context.empty
   (ops, a)
+
+@[reducible]
+def Stateful.operations (circuit: Stateful F α) : List (Operation F) :=
+  (circuit Context.empty).1.2
+
+@[reducible]
+def output (circuit: Stateful F α) : α :=
+  (circuit Context.empty).2
 
 @[simp]
 def as_stateful (f: Context F → Operation F × α) : Stateful F α := fun ctx  =>
@@ -178,11 +183,6 @@ def witness (compute : Unit → F) := do
 @[simp]
 def assert_zero (e: Expression F) := as_stateful (
   fun _ => (Operation.Assert e, ())
-)
-
-@[simp]
-def assert_zero_silent (e: Expression F) := as_stateful (
-  fun _ => (Operation.SilentAssert e, ())
 )
 
 -- add a lookup
@@ -226,28 +226,6 @@ instance : Coe (InputCell F) (Variable F) where
   coe x := x.var
 
 -- extract information from circuits by running them
-inductive NestedList (α : Type) :=
-  | scalar : α → NestedList α
-  | list : List (NestedList α) → NestedList α
-deriving Repr
-
-def constraints' : List (PreOperation F) → List (NestedList (Expression F))
-  | [] => []
-  | op :: ops => match op with
-    | PreOperation.Assert e => NestedList.scalar e :: constraints' ops
-    | _ => constraints' ops
-
-def constraints : List (Operation F) →  List (NestedList (Expression F))
-  | [] => []
-  | op :: ops => match op with
-    | Operation.Assert e => NestedList.scalar e :: constraints ops
-    | Operation.Circuit ⟨ _, _, circuit⟩ => NestedList.list (constraints' circuit.ops) :: constraints ops
-    | _ => constraints ops
-
-def witness_length (circuit : Stateful F α) : ℕ :=
-  let ((ctx, _), _) := circuit Context.empty
-  ctx.locals.size
-
 namespace Adversarial
   @[simp]
   def constraints_hold_from_list [Field F] (env: (ℕ → F)) : List (Operation F) → Prop
@@ -256,70 +234,26 @@ namespace Adversarial
       | Operation.Assert e => (e.eval_env env) = 0
       | Operation.Lookup { table, entry, index := _ } =>
         table.contains (entry.map (fun e => e.eval_env env))
-      | Operation.Circuit ⟨ soundness, _, _ ⟩ => soundness
+      | Operation.Circuit { soundness, .. } => soundness env
       | _ => True
     | op :: ops => match op with
       | Operation.Assert e => ((e.eval_env env) = 0) ∧ constraints_hold_from_list env ops
       | Operation.Lookup { table, entry, index := _ } =>
         table.contains (entry.map (fun e => e.eval_env env)) ∧ constraints_hold_from_list env ops
-      | Operation.Circuit ⟨ soundness, _, _ ⟩ => soundness ∧ constraints_hold_from_list env ops
+      | Operation.Circuit { soundness, .. } => soundness env ∧ constraints_hold_from_list env ops
       | _ => constraints_hold_from_list env ops
 
-  @[simp]
-  def constraints_hold [Field F] (env: (ℕ → F)) (circuit: Stateful F α)   : Prop :=
-    constraints_hold_from_list env (circuit Context.empty).1.2
-
-  def to_flat_operations [Field F] (ops: List (Operation F)) : List (PreOperation F) :=
-  match ops with
-  | [] => []
-  | op :: ops => match op with
-    | Operation.Witness compute => PreOperation.Witness compute :: to_flat_operations ops
-    | Operation.Assert e => PreOperation.Assert e :: to_flat_operations ops
-    | Operation.SilentAssert e => PreOperation.Assert e :: to_flat_operations ops
-    | Operation.Lookup l => PreOperation.Lookup l :: to_flat_operations ops
-    | Operation.Assign (c, v) => PreOperation.Assign (c, v) :: to_flat_operations ops
-    | Operation.Circuit ⟨ _, _, circuit ⟩ => circuit.ops ++ to_flat_operations ops
-
-  -- TODO super painful, mainly because `cases` doesn't allow rich patterns -- how does this work again?
-  theorem can_flatten_first : ∀ (env: ℕ → F) (ops: List (Operation F)),
-    PreOperation.constraints_hold env (to_flat_operations ops)
-    → constraints_hold_from_list env ops
-  := by
-    intro env ops
-    induction ops with
-    | nil => intro h; exact h
-    | cons op ops ih =>
-      cases ops with
-      | nil =>
-        simp at ih
-        cases op with
-        | Circuit c =>
-          sorry
-        | _ => simp [PreOperation.constraints_hold]
-      | cons op' ops' =>
-        let ops := op' :: ops'
-        cases op with
-        | Circuit c => sorry
-        | Assert e => sorry
-        | SilentAssert e => sorry
-        | Witness c =>
-          have h_ops : to_flat_operations (Operation.Witness c :: op' :: ops') = PreOperation.Witness c :: to_flat_operations (op' :: ops') := rfl
-          rw [h_ops]
-          intro h_pre
-          have h1 : PreOperation.constraints_hold env (to_flat_operations (op' :: ops')) := by
-            rw [PreOperation.constraints_hold] at h_pre
-            · exact h_pre
-            · sorry
-            · simp
-            · simp
-          have ih1 := ih h1
-          simp [ih1]
-        | Lookup l => sorry
-        | Assign a => sorry
-
-
+  @[reducible, simp]
+  def constraints_hold [Field F] (env: (ℕ → F)) (circuit: Stateful F α) : Prop :=
+    constraints_hold_from_list env circuit.operations
 end Adversarial
 
+/--
+Weaker version of `Adversarial.constraints_hold_from_list` that captures the statement that, using the default
+witness generator, checking all constraints would not fail.
+
+For subcircuits, since we proved completeness, this only means we need to satisfy the assumptions!
+-/
 @[simp]
 def constraints_hold_from_list [Field F] : List (Operation F) → Prop
   | [] => True
@@ -327,48 +261,75 @@ def constraints_hold_from_list [Field F] : List (Operation F) → Prop
     | Operation.Assert e => e.eval = 0
     | Operation.Lookup { table, entry, index := _ } =>
         table.contains (entry.map Expression.eval)
-    | Operation.Circuit ⟨ soundness, _, _ ⟩ => soundness
+    | Operation.Circuit { completeness, .. } => completeness
     | _ => True
   | op :: ops => match op with
     | Operation.Assert e => (e.eval = 0) ∧ constraints_hold_from_list ops
     | Operation.Lookup { table, entry, index := _ } =>
         table.contains (entry.map Expression.eval) ∧ constraints_hold_from_list ops
-    | Operation.Circuit ⟨ soundness, _, _ ⟩ => soundness ∧ constraints_hold_from_list ops
+    | Operation.Circuit { completeness, .. } => completeness ∧ constraints_hold_from_list ops
     | _ => constraints_hold_from_list ops
-
-/--
-Weaker version of `constraints_hold_from_list` that captures the statement that, using the default
-witness generator, checking all constraints would not fail.
-
-For subcircuits, since we proved completeness, this only means we need to satisfy the assumptions!
--/
-@[simp]
-def passes_constraint_checks_from_list [Field F] : List (Operation F) → Prop
-  | [] => True
-  | op :: [] => match op with
-    | Operation.Assert e => e.eval = 0
-    | Operation.Lookup { table, entry, index := _ } =>
-        table.contains (entry.map Expression.eval)
-    | Operation.Circuit ⟨ _, completeness, _ ⟩ => completeness
-    | _ => True
-  | op :: ops => match op with
-    | Operation.Assert e => (e.eval = 0) ∧ passes_constraint_checks_from_list ops
-    | Operation.Lookup { table, entry, index := _ } =>
-        table.contains (entry.map Expression.eval) ∧ passes_constraint_checks_from_list ops
-    | Operation.Circuit ⟨ _, completeness, _ ⟩ => completeness ∧ passes_constraint_checks_from_list ops
-    | _ => passes_constraint_checks_from_list ops
 
 @[simp]
 def constraints_hold (circuit: Stateful F α) : Prop :=
   constraints_hold_from_list (circuit Context.empty).1.2
 
-@[simp]
-def passes_constraint_checks (circuit: Stateful F α) : Prop :=
-  passes_constraint_checks_from_list (circuit Context.empty).1.2
 
-@[reducible]
-def output (circuit: Stateful F α) : α :=
-  (circuit Context.empty).2
+namespace PreOperation
+-- in the following, we prove equivalence between flattened and nested constraints
+
+def to_flat_operations [Field F] (ops: List (Operation F)) : List (PreOperation F) :=
+  match ops with
+  | [] => []
+  | op :: ops => match op with
+    | Operation.Witness compute => PreOperation.Witness compute :: to_flat_operations ops
+    | Operation.Assert e => PreOperation.Assert e :: to_flat_operations ops
+    | Operation.Lookup l => PreOperation.Lookup l :: to_flat_operations ops
+    | Operation.Assign (c, v) => PreOperation.Assign (c, v) :: to_flat_operations ops
+    | Operation.Circuit circuit => circuit.ops ++ to_flat_operations ops
+
+-- TODO super painful, mainly because `cases` doesn't allow rich patterns -- how does this work again?
+theorem can_flatten_first : ∀ (env: ℕ → F) (ops: List (Operation F)),
+  PreOperation.constraints_hold env (to_flat_operations ops)
+  → Adversarial.constraints_hold_from_list env ops
+:= by
+  intro env ops
+  induction ops with
+  | nil => intro h; exact h
+  | cons op ops ih =>
+    cases ops with
+    | nil =>
+      simp at ih
+      cases op with
+      | Circuit c =>
+        sorry
+      | _ => simp [PreOperation.constraints_hold]
+    | cons op' ops' =>
+      let ops := op' :: ops'
+      cases op with
+      | Circuit c => sorry
+      | Assert e => sorry
+      | Witness c =>
+        have h_ops : to_flat_operations (Operation.Witness c :: op' :: ops') = PreOperation.Witness c :: to_flat_operations (op' :: ops') := rfl
+        rw [h_ops]
+        intro h_pre
+        have h1 : PreOperation.constraints_hold env (to_flat_operations (op' :: ops')) := by
+          rw [PreOperation.constraints_hold] at h_pre
+          · exact h_pre
+          · sorry
+          · simp
+          · simp
+        have ih1 := ih h1
+        simp [ih1]
+      | Lookup l => sorry
+      | Assign a => sorry
+
+theorem can_flatten : ∀ (ops: List (Operation F)),
+  constraints_hold_from_list ops →
+  PreOperation.constraints_hold_default (to_flat_operations ops)
+:= by
+ sorry
+end PreOperation
 
 variable {α β γ: TypePair} [ProvableType F α] [ProvableType F β] [ProvableType F γ]
 namespace Provable
@@ -391,132 +352,100 @@ def assert_equal {F: Type} [Field F] [ProvableType F α] (a a': α.var) : Statef
   let vars': Vector (Expression F) n := ProvableType.to_vars a'
   let eqs := (vars.zip vars').map (fun ⟨ x, x' ⟩ => assert_zero (x - x'))
   do let _ ← eqs.mapM
-
-@[simp]
-def assert_equal_silent {F: Type} [Field F] [ProvableType F α] (a a': α.var) : Stateful F Unit :=
-  let n := ProvableType.size F α
-  let vars: Vector (Expression F) n := ProvableType.to_vars a
-  let vars': Vector (Expression F) n := ProvableType.to_vars a'
-  let eqs := (vars.zip vars').map (fun ⟨ x, x' ⟩ => assert_zero_silent (x - x'))
-  do let _ ← eqs.mapM
 end Provable
 
 -- goal: define circuit such that we can provably use it as subcircuit
-structure FormalCircuit (F: Type) (β α γ: TypePair)
-  [Field F] [ProvableType F α] [ProvableType F β] [ProvableType F γ]
+structure FormalCircuit (F: Type) (β α: TypePair)
+  [Field F] [ProvableType F α] [ProvableType F β]
 where
-  -- β = inputs, α = outputs, γ = values of internal witnesses for "instrumenting" the circuit as prover
-  main: β.var → (Option γ.value) → Stateful F α.var
+  -- β = inputs, α = outputs
+  main: β.var → Stateful F α.var
 
   assumptions: β.value → Prop
   spec: β.value → α.value → Prop
 
   soundness:
+    -- for all environments that determine witness generation
+    ∀ env: ℕ → F,
     -- for all inputs that satisfy the assumptions
-    ∀ b : β.value, ∀ b_var : β.var, Provable.eval F b_var = b → assumptions b →
-    -- for all locally witnessed values
-    ∀ c: γ.value,
+    ∀ b : β.value, ∀ b_var : β.var, Provable.eval_env env b_var = b → assumptions b →
     -- if the constraints hold
-    constraints_hold (main b_var (some c)) →
-    -- the the spec holds on the output
-    let a := Provable.eval F (output (main b_var (some c)))
+    Adversarial.constraints_hold env (main b_var) →
+    -- the spec holds on the input and output
+    let a := Provable.eval_env env (output (main b_var))
     spec b a
 
-  completeness: open Provable in
+  completeness:
     -- for all inputs that satisfy the assumptions
     ∀ b : β.value, ∀ b_var : β.var, Provable.eval F b_var = b → assumptions b →
     -- constraints hold when using the internal witness generator
-    passes_constraint_checks (main b_var none)
+    constraints_hold (main b_var)
 
 @[simp]
-def subcircuit_soundness (circuit: FormalCircuit F β α γ) (b_var : β.var) (a_var : α.var) :=
-  ∀ b : β.value,
-    Provable.eval F b_var = b →
-    circuit.assumptions b →
-  ∀ a : α.value,
-    Provable.eval F a_var = a
-  → circuit.spec b a
+def subcircuit_soundness (circuit: FormalCircuit F β α) (b_var : β.var) (a_var : α.var) (env: ℕ → F) :=
+  let b := Provable.eval_env env b_var
+  let a := Provable.eval_env env a_var
+  circuit.assumptions b → circuit.spec b a
 
 @[simp]
-def subcircuit_completeness (circuit: FormalCircuit F β α γ) (b_var : β.var) :=
-  ∀ b : β.value,
-    Provable.eval F b_var = b →
-    circuit.assumptions b
+def subcircuit_completeness (circuit: FormalCircuit F β α) (b_var : β.var) :=
+  let b := Provable.eval F b_var
+  circuit.assumptions b
 
 def formal_circuit_to_subcircuit
-  (circuit: FormalCircuit F β α γ) (b_var : β.var) (a_option : Option α.value) :
-    (a_var: α.var) ×
-    SubCircuit F
-    (subcircuit_soundness circuit b_var a_var) (subcircuit_completeness circuit b_var) :=
-  let main := circuit.main b_var none -- TODO
-
-  -- modify `main` so that we optionally force the output variable to have a fixed value
-  let main' := do
-    let a ← main
-    match a_option with
-    | none => return a
-    | some a_v => do
-      let a' ← Provable.witness (fun () => a_v)
-      Provable.assert_equal_silent a a' -- silent, because we don't want to "believe" this equation when proving soundness
-      -- since we can't override the value of `a`, but a real prover can, we want to ignore its value
-      return a'
-
-  let res := main' Context.empty
+  (circuit: FormalCircuit F β α) (b_var : β.var) : α.var × SubCircuit F :=
+  let main := circuit.main b_var
+  let res := main Context.empty
   -- TODO: weirdly, when we destructure we can't deduce origin of the results anymore
   -- let ((_, ops), a_var) := res
   let ops := res.1.2
   let a_var := res.2
 
-  let flat_ops := Adversarial.to_flat_operations ops
+  let flat_ops := PreOperation.to_flat_operations ops
   let soundness := subcircuit_soundness circuit b_var a_var
   let completeness := subcircuit_completeness circuit b_var
-  let input_size := ProvableType.size F β
-  let output_size := ProvableType.size F α
 
-  have s: SubCircuit F soundness completeness := by
-    let b_vars: Vector (Expression F) input_size := ProvableType.to_vars b_var
-    let assumptions (b: Vector F input_size) := circuit.assumptions (ProvableType.from_values b)
-    let a_vars: Vector (Expression F) output_size := ProvableType.to_vars a_var
+  have s: SubCircuit F := by
+    use flat_ops, soundness, completeness
 
-    use flat_ops, input_size, output_size, b_vars, assumptions, a_vars
+    -- `imply_soundness`
+    -- we are given an environment where the constraints hold, and can assume the assumptions are true
+    intro env h_holds
+    show soundness env
 
-    -- show imply_soundness
-    intro b env h_eq_b as h_holds
+    let b : β.value := Provable.eval_env env b_var
+    let a : α.value := Provable.eval_env env a_var
+    rintro (as : circuit.assumptions b)
+    show circuit.spec b a
 
-    let a: α.value := Provable.eval_env env a_var
-    intro b hb assumptions a' ha'
+    -- by soundness of the circuit, the spec is satisfied if only the constraints hold
+    suffices h: Adversarial.constraints_hold_from_list env ops by
+      exact circuit.soundness env b b_var rfl as h
 
-    suffices h: Adversarial.constraints_hold_from_list env ops from
-      have ha : Provable.eval_env env (output main) = a := by
-        dsimp [a, output, a_var, res]
-        sorry
-      -- circuit.soundness b b_var hb assumptions a ⟨ env, ⟨ h, ha ⟩ ⟩
-      sorry
+    -- so we just need to go from flattened constraints to constraints
+    guard_hyp h_holds : PreOperation.constraints_hold env (PreOperation.to_flat_operations ops)
+    exact PreOperation.can_flatten_first env ops h_holds
 
-    guard_hyp h_holds : PreOperation.constraints_hold env (Adversarial.to_flat_operations ops)
+    -- `implied_by_completeness`
+    -- we are given that the assumptions are true
+    intro h_completeness
+    let b := Provable.eval F b_var
+    have as : circuit.assumptions b := h_completeness
 
-    exact Adversarial.can_flatten_first env ops h_holds
-    sorry
+    -- by completeness of the circuit, this means we can make the constraints hold
+    have h_holds : constraints_hold_from_list ops := circuit.completeness b b_var rfl as
+
+    -- so we just need to go from constraints to flattened constraints
+    exact PreOperation.can_flatten ops h_holds
 
   ⟨ a_var, s ⟩
 
 -- run a sub-circuit
 @[simp]
-def subcircuit (circuit: FormalCircuit F β α γ) (b: β.var) := as_stateful (F:=F) (
+def subcircuit (circuit: FormalCircuit F β α) (b: β.var) := as_stateful (F:=F) (
   fun _ =>
-    let ⟨ a, subcircuit ⟩ := formal_circuit_to_subcircuit circuit b none
-    let soundness := subcircuit_soundness circuit b a
-    let completeness := subcircuit_completeness circuit b
-    (Operation.Circuit ⟨ soundness, completeness, subcircuit ⟩, a)
-)
-
-@[simp]
-def subcircuit_with_output (a_v: Option α.value) (circuit: FormalCircuit F β α γ) (b: β.var) := as_stateful (F:=F) (
-  fun _ =>
-    let ⟨ a, subcircuit ⟩ := formal_circuit_to_subcircuit (F:=F) circuit b a_v
-    let soundness := subcircuit_soundness circuit b a
-    let completeness := subcircuit_completeness circuit b
-    (Operation.Circuit ⟨ soundness, completeness, subcircuit ⟩, a)
+    let ⟨ a, subcircuit ⟩ := formal_circuit_to_subcircuit circuit b
+    (Operation.Circuit subcircuit, a)
 )
 end Circuit
 
@@ -651,55 +580,17 @@ instance : Coe (Byte (F p)) (Expression (F p)) where
   coe x := x.var
 end Byte
 
-def witness_or_trace_var (trace: Option (ℕ → F p)) (compute : Unit → F p) := as_stateful (fun ctx =>
-  let i := ctx.offset
-    let compute' := fun () => match trace with
-    | none => compute ()
-    | some trace => trace i
-  let var: Variable (F p) := ⟨ i, compute' ⟩
-  (Operation.Witness compute', var)
-)
-def witness_or_value_var (value: Option (F p)) (compute : Unit → F p) := as_stateful (fun ctx =>
-  let i := ctx.offset
-    let compute' := fun () => match value with
-    | none => compute ()
-    | some v => v
-  let var: Variable (F p) := ⟨ i, compute' ⟩
-  (Operation.Witness compute', var)
-)
-
-def witness_or_trace (trace: Option (ℕ → F p)) (compute: Unit → F p) := do
-  let var ← witness_or_trace_var trace compute
-  return Expression.var var
-
-def witness_or_value (value: Option (F p)) (compute: Unit → F p) := do
-  let var ← witness_or_value_var value compute
-  return Expression.var var
-
 variable [Fact (p ≠ 0)]
 
 open Provable (field field2 fields)
 
-def add8 (x y: Expression (F p)) (z carry: Option (F p) := none) := do
-  let z ← witness_or_value z (fun () => mod_256 (x + y))
-  byte_lookup z
-  let carry ← witness_or_value carry (fun () => floordiv (x + y) 256)
-  assert_bool carry
-
-  assert_zero (x + y - z - carry * (const 256))
-  return z
-
-def add8_full (input : Vector (Expression (F p)) 3) (locals: Option (Vector (F p) 2)) := do
+def add8_full (input : Vector (Expression (F p)) 3) := do
   let ⟨ [x, y, carry_in], _ ⟩ := input
-  -- TODO it's painful to destructure options like this, need a helper that does:
-  -- Monad (Vector α n) -> Vector (Monad α) n
-  let z := do let ⟨ [z, _], _ ⟩ ← locals; return z
-  let carry_out := do let ⟨ [_, carry], _ ⟩ ← locals; return carry
 
-  let z ← witness_or_value z (fun () => mod_256 (x + y + carry_in))
+  let z ← witness (fun () => mod_256 (x + y + carry_in))
   byte_lookup z
 
-  let carry_out ← witness_or_value carry_out (fun () => floordiv (x + y + carry_in) 256)
+  let carry_out ← witness (fun () => floordiv (x + y + carry_in) 256)
   assert_bool carry_out
 
   assert_zero (x + y + carry_in - z - carry_out * (const 256))
@@ -714,33 +605,37 @@ def spec (input : Vector (F p) 3) (z: F p) :=
   let ⟨ [x, y, carry_in], _ ⟩ := input
   z.val = (x.val + y.val + carry_in.val) % 256
 
-def circuit : FormalCircuit (F p) (fields (F p) 3) (field (F p)) (fields (F p) 2) where
+def circuit : FormalCircuit (F p) (fields (F p) 3) (field (F p)) where
   main := add8_full
   assumptions := assumptions
   spec := spec
   soundness := by
     -- introductions
-    rintro ⟨ inputs, _ ⟩ ⟨ inputs_var, _ ⟩ h_inputs
+    rintro env ⟨ inputs, _ ⟩ ⟨ inputs_var, _ ⟩ h_inputs as
     let [x, y, carry_in] := inputs
     let [x_var, y_var, carry_in_var] := inputs_var
-    rintro as ⟨ witnesses, _ ⟩
-    let [z, carry_out] := witnesses
     rintro h_holds z'
 
     -- characterize inputs
-    have h_inputs' : [x_var.eval, y_var.eval, carry_in_var.eval] = [x, y, carry_in] := by injection h_inputs
-    injection h_inputs' with hx h_inputs'
-    injection h_inputs' with hy h_inputs'
-    injection h_inputs' with hcarry_in
-
-    -- characterize output, z' to equal (witness input) z, and replace in spec
-    have hz : z' = z := rfl
-    rw [hz]
+    injection h_inputs with h_inputs
+    injection h_inputs with hx h_inputs
+    injection h_inputs with hy h_inputs
+    injection h_inputs with hcarry_in h_inputs
+    dsimp at hx hy hcarry_in
+    guard_hyp hx : x_var.eval_env env = x
+    guard_hyp hy : y_var.eval_env env = y
+    guard_hyp hcarry_in : carry_in_var.eval_env env = carry_in
 
     -- simplify constraints hypothesis
     dsimp at h_holds
+    let z := env 0
+    let carry_out := env 1
+    rw [←(by rfl : z = env 0), ←(by rfl : carry_out = env 1)] at h_holds
     rw [hx, hy, hcarry_in] at h_holds
     let ⟨ h_byte, h_bool_carry, h_add ⟩ := h_holds
+
+    -- characterize output and replace in spec
+    rw [(by rfl : z' = z)]
 
     -- simplify assumptions and spec
     dsimp [spec]
@@ -759,6 +654,7 @@ def circuit : FormalCircuit (F p) (fields (F p) 3) (field (F p)) (fields (F p) 2
     -- reuse ByteTable.soundness
     have h_byte': z.val < 256 := ByteTable.soundness z h_byte
     sorry
+
 
   completeness := by
     -- introductions
@@ -794,9 +690,9 @@ def circuit : FormalCircuit (F p) (fields (F p) 3) (field (F p)) (fields (F p) 2
     sorry
 end Add8Full
 
-def add8_wrapped (input : Vector (Expression (F p)) 2) (z: Option (F p)) := do
+def add8_wrapped (input : Vector (Expression (F p)) 2) := do
   let ⟨ [x, y], _ ⟩ := input
-  let z ← subcircuit_with_output z Add8Full.circuit (vec [x, y, const 0])
+  let z ← subcircuit Add8Full.circuit (vec [x, y, const 0])
   return z
 
 namespace Add8
@@ -808,57 +704,45 @@ def assumptions (input : Vector (F p) 2) :=
   let ⟨ [x, y], _ ⟩ := input
   x.val < 256 ∧ y.val < 256
 
-def soundness_wrapped (inputs: Vector (F p) 2) (inputs_var: Vector (Expression (F p)) 2)
-    (h_inputs: (Provable.eval (F p) (α:=(fields (F p) 2)) inputs_var) = inputs)
-    (as: assumptions inputs)
-    (z: (F p))
-    (h: constraints_hold (add8_wrapped inputs_var (some z))) :
-    let z' := Provable.eval (F p) (output (add8_wrapped inputs_var (some z)))
-    spec inputs z'
-  := by
-  -- finish introductions
-  let ⟨ [x, y], _ ⟩ := inputs
-  let ⟨ [x_var, y_var], _ ⟩ := inputs_var
-  intro z'
-
-  -- characterize inputs
-  have h_inputs' : [x_var.eval, y_var.eval] = [x, y] := by injection h_inputs
-  injection h_inputs' with hx h_inputs'
-  injection h_inputs' with hy
-
-  -- characterize output, z' to equal (witness input) z, and replace in spec
-  have hz : z' = z := by rfl
-  rw [hz]
-
-  -- simplify constraints hypothesis
-  dsimp at h
-
-  -- h is just `subcircuit_soundness` of `Add8Full.circuit`
-  -- pass in the input values and a proof that they are correct
-  have h_inputs'' : vec [x_var.eval, y_var.eval, 0] = vec [x, y, 0] := by rw [hx, hy]
-  specialize h (vec [x, y, 0]) h_inputs''
-
-  -- satisfy `Add8Full.assumptions` by using our own assumptions
-  let ⟨ asx, asy ⟩ := as
-  have as': Add8Full.assumptions (vec [x, y, 0]) := ⟨asx, asy, by tauto⟩
-  specialize h as'
-
-  -- pass in output value and a (trivial) proof that it's correct
-  specialize h z rfl
-  guard_hyp h: Add8Full.circuit.spec (vec [x, y, 0]) z
-
-  -- unfold `Add8Full` statements to show what the hypothesis is in our context
-  dsimp [Add8Full.circuit, Add8Full.spec] at h
-  guard_hyp h: z.val = (x.val + y.val + (0 : F p).val) % 256
-
-  simp at h
-  exact h
-
-def circuit : FormalCircuit (F p) (fields (F p) 2) (field (F p)) (field (F p)) where
+def circuit : FormalCircuit (F p) (fields (F p) 2) (field (F p)) where
   main := add8_wrapped
   assumptions := assumptions
   spec := spec
-  soundness := soundness_wrapped
+  soundness := by
+    -- introductions
+    rintro env ⟨ inputs, _ ⟩ ⟨ inputs_var, _ ⟩ h_inputs as
+    let [x, y] := inputs
+    let [x_var, y_var] := inputs_var
+    intro h_holds z
+
+    -- characterize inputs
+    injection h_inputs with h_inputs
+    injection h_inputs with hx h_inputs
+    injection h_inputs with hy h_inputs
+    dsimp at hx hy
+
+    -- simplify constraints hypothesis
+    -- it's just the `subcircuit_soundness` of `Add8Full.circuit`
+    dsimp at h_holds
+
+    -- rewrite input and ouput values
+    rw [hx, hy] at h_holds
+    rw [←(by rfl : z = env 0)] at h_holds
+
+    -- satisfy `Add8Full.assumptions` by using our own assumptions
+    let ⟨ asx, asy ⟩ := as
+    have as': Add8Full.assumptions (vec [x, y, 0]) := ⟨asx, asy, by tauto⟩
+    specialize h_holds as'
+
+    guard_hyp h_holds : Add8Full.circuit.spec (vec [x, y, 0]) z
+
+    -- unfold `Add8Full` statements to show what the hypothesis is in our context
+    dsimp [Add8Full.circuit, Add8Full.spec] at h_holds
+    guard_hyp h_holds : z.val = (x.val + y.val + (0 : F p).val) % 256
+
+    simp at h_holds
+    exact h_holds
+
   completeness := by
     -- introductions
     rintro ⟨ inputs, _ ⟩ ⟨ inputs_var, _ ⟩ h_inputs
@@ -867,22 +751,17 @@ def circuit : FormalCircuit (F p) (fields (F p) 2) (field (F p)) (field (F p)) w
     rintro as
 
     -- characterize inputs
-    have h_inputs' : [x_var.eval, y_var.eval] = [x, y] := by injection h_inputs
-    injection h_inputs' with hx h_inputs'
-    injection h_inputs' with hy
+    injection h_inputs with h_inputs
+    injection h_inputs with hx h_inputs
+    injection h_inputs with hy h_inputs
+    dsimp at hx hy
 
-    -- simplify assumptions
+    -- simplify assumptions and goal
     dsimp [assumptions] at as
-
-    -- simplify goal
     dsimp
     rw [hx, hy]
 
-    -- the goal is just the `subcircuit_completeness` of `Add8Full.circuit`, i.e. show the assumptions hold
-    -- introduce inputs and replace them with the eval'd variables in our context
-    intro inputs' h_inputs'
-    rw [←h_inputs']
-
+    -- the goal is just the `subcircuit_completeness` of `Add8Full.circuit`, i.e. the assumptions must hold
     -- simplify `Add8Full.assumptions` and prove them easily by using our own assumptions
     dsimp [Add8Full.circuit, Add8Full.assumptions]
     show x.val < 256 ∧ y.val < 256 ∧ (0 = 0 ∨ 0 = 1)
@@ -890,15 +769,6 @@ def circuit : FormalCircuit (F p) (fields (F p) 2) (field (F p)) (field (F p)) w
     exact ⟨ asx, asy, by tauto ⟩
 
 end Add8
-
-def Main (x y : F p) : Stateful (F p) Unit := do
-  -- in a real AIR definition, these could be inputs to every step
-  let x ← create_input x 0
-  let y ← create_input y 1
-
-  let z ← add8 x y
-  x.set_next y
-  y.set_next z
 
 #eval!
   let p := 1009
@@ -908,7 +778,6 @@ def Main (x y : F p) : Stateful (F p) Unit := do
   let main := do
     let x ← witness (fun _ => 10)
     let y ← witness (fun _ => 20)
-    add8_wrapped (p:=p) (vec [x, y]) none
-  let (ops, _) := main.run
-  ops
+    add8_wrapped (p:=p) (vec [x, y])
+  main.operations
 end

@@ -57,6 +57,7 @@ def const (F: Type) [ProvableType F α] (x: α.value) : α.var :=
 @[reducible]
 def field (F : Type) : TypePair := ⟨ Expression F, F ⟩
 
+@[simp]
 instance : ProvableType F (field F) where
   size := 1
   to_vars x := vec [x]
@@ -70,6 +71,7 @@ def pair (α β : TypePair) : TypePair := ⟨ α.var × β.var, α.value × β.v
 @[reducible]
 def field2 (F : Type) : TypePair := pair (field F) (field F)
 
+@[simp]
 instance : ProvableType F (field2 F) where
   size := 2
   to_vars pair := vec [pair.1, pair.2]
@@ -83,6 +85,7 @@ def vec (α: TypePair) (n: ℕ) : TypePair := ⟨ Vector α.var n, Vector α.val
 @[reducible]
 def fields (F: Type) (n: ℕ) : TypePair := vec (field F) n
 
+@[simp]
 instance : ProvableType F (fields F n) where
   size := n
   to_vars x := x

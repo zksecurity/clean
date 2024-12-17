@@ -22,6 +22,7 @@ namespace Vector
     | ⟨ [], ha ⟩, ⟨ [], _ ⟩  => ⟨ [], ha ⟩
     | ⟨ a::as, ha ⟩, ⟨ b::bs, hb ⟩ => ⟨ (a, b) :: List.zip as bs, by sorry ⟩
 
+  @[simp]
   def get (v: Vector α n) (i: Fin n) : α :=
     let i' : Fin v.1.length := Fin.cast (length_matches v).symm i
     v.val.get i'
