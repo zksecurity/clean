@@ -416,15 +416,13 @@ where
   spec: β.value → α.value → Prop
 
   soundness:
-    -- for all inputs that satisfy the assumptions
-    ∀ b : β.value, assumptions b →
-    -- for all locally witnessed values
+    -- for all environments that determine witness generation
     ∀ env: ℕ → F,
-    -- assuming input variables that evaluate to the inputs
-    ∀ b_var : β.var, Provable.eval_env env b_var = b →
+    -- for all inputs that satisfy the assumptions
+    ∀ b : β.value, ∀ b_var : β.var, Provable.eval_env env b_var = b → assumptions b →
     -- if the constraints hold
     Adversarial.constraints_hold env (main b_var) →
-    -- the the spec holds on the output
+    -- the spec holds on the input and output
     let a := Provable.eval_env env (output (main b_var))
     spec b a
 
@@ -455,7 +453,7 @@ def formal_circuit_to_subcircuit
     (a_var: α.var) ×
     SubCircuit F
     (subcircuit_soundness circuit b_var a_var) (subcircuit_completeness circuit b_var) :=
-  let main := circuit.main b_var -- TODO
+  let main := circuit.main b_var
 
   -- modify `main` so that we optionally force the output variable to have a fixed value
   let main' := do
@@ -689,7 +687,7 @@ def circuit : FormalCircuit (F p) (fields (F p) 3) (field (F p)) where
   spec := spec
   soundness := by
     -- introductions
-    rintro ⟨ inputs, _ ⟩ as env ⟨ inputs_var, _ ⟩ h_inputs
+    rintro env ⟨ inputs, _ ⟩ ⟨ inputs_var, _ ⟩ h_inputs as
     let [x, y, carry_in] := inputs
     let [x_var, y_var, carry_in_var] := inputs_var
     -- let [z, carry_out] := witnesses
@@ -790,7 +788,7 @@ def circuit : FormalCircuit (F p) (fields (F p) 2) (field (F p)) where
   spec := spec
   soundness := by
     -- introductions
-    rintro ⟨ inputs, _ ⟩ as env ⟨ inputs_var, _ ⟩ h_inputs
+    rintro env ⟨ inputs, _ ⟩ ⟨ inputs_var, _ ⟩ h_inputs as
     let [x, y] := inputs
     let [x_var, y_var] := inputs_var
     intro h_holds z
