@@ -243,7 +243,7 @@ namespace Adversarial
       | Operation.Circuit { soundness, .. } => soundness env ∧ constraints_hold_from_list env ops
       | _ => constraints_hold_from_list env ops
 
-  @[reducible]
+  @[reducible, simp]
   def constraints_hold [Field F] (env: (ℕ → F)) (circuit: Stateful F α) : Prop :=
     constraints_hold_from_list env circuit.operations
 end Adversarial
@@ -626,8 +626,7 @@ def circuit : FormalCircuit (F p) (fields (F p) 3) (field (F p)) where
     guard_hyp hy : y_var.eval_env env = y
     guard_hyp hcarry_in : carry_in_var.eval_env env = carry_in
 
-    -- we use a trick to get Lean to display the actual parts of `h_holds` for us!
-    have h_holds: _ ∧ _ ∧ _  := h_holds
+    -- simplify constraints hypothesis
     dsimp at h_holds
     let z := env 0
     let carry_out := env 1
@@ -723,9 +722,7 @@ def circuit : FormalCircuit (F p) (fields (F p) 2) (field (F p)) where
     dsimp at hx hy
 
     -- simplify constraints hypothesis
-    -- we know it must be just the `subcircuit_soundness` of `Add8Full.circuit`
-    -- so it has an implication form
-    have h_holds : _ → _ := h_holds
+    -- it's just the `subcircuit_soundness` of `Add8Full.circuit`
     dsimp at h_holds
 
     -- rewrite input and ouput values
