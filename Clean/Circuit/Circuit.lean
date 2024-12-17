@@ -62,7 +62,7 @@ def toString [Repr F] : (op : PreOperation F) → String
 def constraints_hold (env: ℕ → F) : List (PreOperation F) → Prop
   | [] => True
   | op :: [] => match op with
-    | Assert e => (e.eval_env env) = 0
+    | Assert e => e.eval_env env = 0
     | Lookup { table, entry, index := _ } =>
       table.contains (entry.map (fun e => e.eval_env env))
     | _ => True
@@ -88,14 +88,14 @@ end PreOperation
 
 -- this type models a subcircuit: a list of operations that imply a certain spec,
 -- for all traces that satisfy the constraints
-structure SubCircuit (F: Type) [Field F]
-  (soundness: (ℕ → F) → Prop) (completeness: Prop)
-where
+structure SubCircuit (F: Type) [Field F] where
   ops: List (PreOperation F)
 
   -- we have a low-level notion of "the constraints hold on these operations".
   -- for convenience, we allow the framework to transform that into custom `soundness`
   -- and `completeness` statements (which may involve inputs/outputs, assumptions on inputs, etc)
+  soundness : (ℕ → F) → Prop
+  completeness : Prop
 
   -- `soundness` needs to follow from the constraints for any witness
   imply_soundness : ∀ env, PreOperation.constraints_hold env ops → soundness env
@@ -103,13 +103,12 @@ where
   -- `completeness` needs to imply the constraints using default witnesses
   implied_by_completeness : completeness → PreOperation.constraints_hold_default ops
 
-
 inductive Operation (F : Type) [Field F] where
   | Witness : (compute : Unit → F) → Operation F
   | Assert : Expression F → Operation F
   | Lookup : Lookup F → Operation F
   | Assign : Cell F × Variable F → Operation F
-  | Circuit : (Σ soundness : (ℕ → F) → Prop, Σ completeness : Prop, SubCircuit F soundness completeness) → Operation F
+  | Circuit : SubCircuit F → Operation F
 namespace Operation
 
 @[simp]
@@ -121,8 +120,8 @@ def run (ctx: Context F) : Operation F → Context F
   | Assert _ => ctx
   | Lookup _ => ctx
   | Assign _ => ctx
-  | Circuit ⟨ _, _, circuit ⟩ =>
-    let offset := ctx.offset + circuit.ops.length
+  | Circuit { ops, .. } =>
+    let offset := ctx.offset + ops.length
     { ctx with offset }
 
 def toString [Repr F] : (op : Operation F) → String
@@ -130,7 +129,7 @@ def toString [Repr F] : (op : Operation F) → String
   | Assert e => "(Assert " ++ reprStr e ++ " == 0)"
   | Lookup l => reprStr l
   | Assign (c, v) => "(Assign " ++ reprStr c ++ ", " ++ reprStr v ++ ")"
-  | Circuit ⟨ _, _, circuit ⟩ => "(Circuit " ++ reprStr (circuit.ops.map PreOperation.toString) ++ ")"
+  | Circuit { ops, .. } => "(Circuit " ++ reprStr (ops.map PreOperation.toString) ++ ")"
 
 instance [Repr F] : ToString (Operation F) where
   toString := toString
@@ -237,7 +236,7 @@ def constraints : List (Operation F) →  List (NestedList (Expression F))
   | [] => []
   | op :: ops => match op with
     | Operation.Assert e => NestedList.scalar e :: constraints ops
-    | Operation.Circuit ⟨ _, _, circuit⟩ => NestedList.list (constraints' circuit.ops) :: constraints ops
+    | Operation.Circuit circuit => NestedList.list (constraints' circuit.ops) :: constraints ops
     | _ => constraints ops
 
 def witness_length (circuit : Stateful F α) : ℕ :=
@@ -252,13 +251,13 @@ namespace Adversarial
       | Operation.Assert e => (e.eval_env env) = 0
       | Operation.Lookup { table, entry, index := _ } =>
         table.contains (entry.map (fun e => e.eval_env env))
-      | Operation.Circuit ⟨ soundness, _, _ ⟩ => soundness env
+      | Operation.Circuit { soundness, .. } => soundness env
       | _ => True
     | op :: ops => match op with
       | Operation.Assert e => ((e.eval_env env) = 0) ∧ constraints_hold_from_list env ops
       | Operation.Lookup { table, entry, index := _ } =>
         table.contains (entry.map (fun e => e.eval_env env)) ∧ constraints_hold_from_list env ops
-      | Operation.Circuit ⟨ soundness, _, _ ⟩ => soundness env ∧ constraints_hold_from_list env ops
+      | Operation.Circuit { soundness, .. } => soundness env ∧ constraints_hold_from_list env ops
       | _ => constraints_hold_from_list env ops
 
   @[reducible]
@@ -279,13 +278,13 @@ def constraints_hold_from_list [Field F] : List (Operation F) → Prop
     | Operation.Assert e => e.eval = 0
     | Operation.Lookup { table, entry, index := _ } =>
         table.contains (entry.map Expression.eval)
-    | Operation.Circuit ⟨ _, completeness, _ ⟩ => completeness
+    | Operation.Circuit { completeness, .. } => completeness
     | _ => True
   | op :: ops => match op with
     | Operation.Assert e => (e.eval = 0) ∧ constraints_hold_from_list ops
     | Operation.Lookup { table, entry, index := _ } =>
         table.contains (entry.map Expression.eval) ∧ constraints_hold_from_list ops
-    | Operation.Circuit ⟨ _, completeness, _ ⟩ => completeness ∧ constraints_hold_from_list ops
+    | Operation.Circuit { completeness, .. } => completeness ∧ constraints_hold_from_list ops
     | _ => constraints_hold_from_list ops
 
 @[simp]
@@ -304,7 +303,7 @@ def to_flat_operations [Field F] (ops: List (Operation F)) : List (PreOperation 
     | Operation.Assert e => PreOperation.Assert e :: to_flat_operations ops
     | Operation.Lookup l => PreOperation.Lookup l :: to_flat_operations ops
     | Operation.Assign (c, v) => PreOperation.Assign (c, v) :: to_flat_operations ops
-    | Operation.Circuit ⟨ _, _, circuit ⟩ => circuit.ops ++ to_flat_operations ops
+    | Operation.Circuit circuit => circuit.ops ++ to_flat_operations ops
 
 -- TODO super painful, mainly because `cases` doesn't allow rich patterns -- how does this work again?
 theorem can_flatten_first : ∀ (env: ℕ → F) (ops: List (Operation F)),
@@ -415,9 +414,7 @@ def subcircuit_completeness (circuit: FormalCircuit F β α) (b_var : β.var) :=
   circuit.assumptions b
 
 def formal_circuit_to_subcircuit
-  (circuit: FormalCircuit F β α) (b_var : β.var) :
-    (a_var: α.var) ×
-    SubCircuit F (subcircuit_soundness circuit b_var a_var) (subcircuit_completeness circuit b_var) :=
+  (circuit: FormalCircuit F β α) (b_var : β.var) : α.var × SubCircuit F :=
   let main := circuit.main b_var
   let res := main Context.empty
   -- TODO: weirdly, when we destructure we can't deduce origin of the results anymore
@@ -429,8 +426,8 @@ def formal_circuit_to_subcircuit
   let soundness := subcircuit_soundness circuit b_var a_var
   let completeness := subcircuit_completeness circuit b_var
 
-  have s: SubCircuit F soundness completeness := by
-    use flat_ops
+  have s: SubCircuit F := by
+    use flat_ops, soundness, completeness
 
     -- `imply_soundness`
     -- we are given an environment where the constraints hold, and can assume the assumptions are true
@@ -469,9 +466,7 @@ def formal_circuit_to_subcircuit
 def subcircuit (circuit: FormalCircuit F β α) (b: β.var) := as_stateful (F:=F) (
   fun _ =>
     let ⟨ a, subcircuit ⟩ := formal_circuit_to_subcircuit circuit b
-    let soundness := subcircuit_soundness circuit b a
-    let completeness := subcircuit_completeness circuit b
-    (Operation.Circuit ⟨ soundness, completeness, subcircuit ⟩, a)
+    (Operation.Circuit subcircuit, a)
 )
 end Circuit
 
