@@ -449,24 +449,12 @@ def subcircuit_completeness (circuit: FormalCircuit F β α) (b_var : β.var) :=
     circuit.assumptions b
 
 def formal_circuit_to_subcircuit
-  (circuit: FormalCircuit F β α) (b_var : β.var) (a_option : Option α.value) :
+  (circuit: FormalCircuit F β α) (b_var : β.var) :
     (a_var: α.var) ×
     SubCircuit F
     (subcircuit_soundness circuit b_var a_var) (subcircuit_completeness circuit b_var) :=
   let main := circuit.main b_var
-
-  -- modify `main` so that we optionally force the output variable to have a fixed value
-  let main' := do
-    let a ← main
-    match a_option with
-    | none => return a
-    | some a_v => do
-      let a' ← Provable.witness (fun () => a_v)
-      Provable.assert_equal_silent a a' -- silent, because we don't want to "believe" this equation when proving soundness
-      -- since we can't override the value of `a`, but a real prover can, we want to ignore its value
-      return a'
-
-  let res := main' Context.empty
+  let res := main Context.empty
   -- TODO: weirdly, when we destructure we can't deduce origin of the results anymore
   -- let ((_, ops), a_var) := res
   let ops := res.1.2
@@ -494,7 +482,6 @@ def formal_circuit_to_subcircuit
     suffices h: Adversarial.constraints_hold_from_list env ops from
       have ha : Provable.eval_env env (output main) = a := by
         dsimp [a, output, a_var, res]
-        sorry
       -- circuit.soundness b b_var hb assumptions a ⟨ env, ⟨ h, ha ⟩ ⟩
       sorry
 
@@ -509,16 +496,7 @@ def formal_circuit_to_subcircuit
 @[simp]
 def subcircuit (circuit: FormalCircuit F β α) (b: β.var) := as_stateful (F:=F) (
   fun _ =>
-    let ⟨ a, subcircuit ⟩ := formal_circuit_to_subcircuit circuit b none
-    let soundness := subcircuit_soundness circuit b a
-    let completeness := subcircuit_completeness circuit b
-    (Operation.Circuit ⟨ soundness, completeness, subcircuit ⟩, a)
-)
-
-@[simp]
-def subcircuit_with_output (a_v: Option α.value) (circuit: FormalCircuit F β α) (b: β.var) := as_stateful (F:=F) (
-  fun _ =>
-    let ⟨ a, subcircuit ⟩ := formal_circuit_to_subcircuit (F:=F) circuit b a_v
+    let ⟨ a, subcircuit ⟩ := formal_circuit_to_subcircuit circuit b
     let soundness := subcircuit_soundness circuit b a
     let completeness := subcircuit_completeness circuit b
     (Operation.Circuit ⟨ soundness, completeness, subcircuit ⟩, a)
