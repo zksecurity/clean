@@ -8,16 +8,13 @@ import Clean.Circuit.Provable
 namespace Circuit
 variable {F: Type}
 
-instance [Repr F] {n: ℕ} : Repr (Vector F n) where
-  reprPrec l _ := repr l.val
-
 structure Table (F : Type) where
   name: String
   length: ℕ
   arity: ℕ
   row: Fin length → Vector F arity
 
-def Table.contains (table: Table F) (row: Vector F table.arity) := ∃ i, row = table.row i
+def Table.contains (table: Table F) row := ∃ i, row = table.row i
 
 structure Lookup (F : Type) where
   table: Table F
@@ -78,9 +75,32 @@ end PreOperation
 
 -- this type models a subcircuit: a list of operations that imply a certain spec,
 -- for all traces that satisfy the constraints
-structure SpecImplied (F: Type) [Field F] (spec: Prop) where
+structure SubCircuit (F: Type) [Field F]
+  (soundness: Prop) (completeness: Prop)
+where
   ops: List (PreOperation F)
-  imply_spec: ∀ env, PreOperation.constraints_hold env ops → spec
+
+  input_size: ℕ
+  output_size: ℕ
+  input: Vector (Expression F) input_size
+  assumptions: Vector F input_size → Prop
+  output: Vector (Expression F) output_size
+
+  imply_soundness :
+    ∀ input_value : Vector F input_size,
+    ∀ env : ℕ → F,
+    input.map (Expression.eval_env env) = input_value →
+    assumptions input_value →
+    PreOperation.constraints_hold env ops →
+    soundness
+
+  imply_completeness :
+    ∀ input_value : Vector F input_size,
+    ∀ env : ℕ → F,
+    input.map (Expression.eval_env env) = input_value →
+    assumptions input_value →
+    completeness →
+    PreOperation.constraints_hold env ops
 
 inductive Operation (F : Type) [Field F] where
   | Witness : (compute : Unit → F) → Operation F
@@ -90,7 +110,7 @@ inductive Operation (F : Type) [Field F] where
   | SilentAssert : Expression F → Operation F
   | Lookup : Lookup F → Operation F
   | Assign : Cell F × Variable F → Operation F
-  | Circuit : (Σ (s : Prop), SpecImplied F s) → Operation F
+  | Circuit : (Σ soundness : Prop, Σ completeness : Prop, SubCircuit F soundness completeness) → Operation F
 namespace Operation
 
 @[simp]
@@ -103,8 +123,8 @@ def run (ctx: Context F) : Operation F → Context F
   | SilentAssert _ => ctx
   | Lookup _ => ctx
   | Assign _ => ctx
-  | Circuit ⟨ _, ops, _ ⟩ =>
-    let offset := ctx.offset + ops.length
+  | Circuit ⟨ _, _, circuit ⟩ =>
+    let offset := ctx.offset + circuit.ops.length
     { ctx with offset }
 
 def toString [Repr F] : (op : Operation F) → String
@@ -113,7 +133,7 @@ def toString [Repr F] : (op : Operation F) → String
   | SilentAssert e => "(SilentAssert " ++ reprStr e ++ " == 0)"
   | Lookup l => reprStr l
   | Assign (c, v) => "(Assign " ++ reprStr c ++ ", " ++ reprStr v ++ ")"
-  | Circuit ⟨ _, ops, _ ⟩ => "(Circuit " ++ reprStr (ops.map PreOperation.toString) ++ ")"
+  | Circuit ⟨ _, _, circuit ⟩ => "(Circuit " ++ reprStr (circuit.ops.map PreOperation.toString) ++ ")"
 
 instance [Repr F] : ToString (Operation F) where
   toString := toString
@@ -221,7 +241,7 @@ def constraints : List (Operation F) →  List (NestedList (Expression F))
   | [] => []
   | op :: ops => match op with
     | Operation.Assert e => NestedList.scalar e :: constraints ops
-    | Operation.Circuit ⟨ _, ops', _⟩ => NestedList.list (constraints' ops') :: constraints ops
+    | Operation.Circuit ⟨ _, _, circuit⟩ => NestedList.list (constraints' circuit.ops) :: constraints ops
     | _ => constraints ops
 
 def witness_length (circuit : Stateful F α) : ℕ :=
@@ -236,13 +256,13 @@ namespace Adversarial
       | Operation.Assert e => (e.eval_env env) = 0
       | Operation.Lookup { table, entry, index := _ } =>
         table.contains (entry.map (fun e => e.eval_env env))
-      | Operation.Circuit ⟨ spec, _ ⟩ => spec
+      | Operation.Circuit ⟨ soundness, _, _ ⟩ => soundness
       | _ => True
     | op :: ops => match op with
       | Operation.Assert e => ((e.eval_env env) = 0) ∧ constraints_hold_from_list env ops
       | Operation.Lookup { table, entry, index := _ } =>
         table.contains (entry.map (fun e => e.eval_env env)) ∧ constraints_hold_from_list env ops
-      | Operation.Circuit ⟨ spec, _ ⟩ => spec ∧ constraints_hold_from_list env ops
+      | Operation.Circuit ⟨ soundness, _, _ ⟩ => soundness ∧ constraints_hold_from_list env ops
       | _ => constraints_hold_from_list env ops
 
   @[simp]
@@ -258,7 +278,7 @@ namespace Adversarial
     | Operation.SilentAssert e => PreOperation.Assert e :: to_flat_operations ops
     | Operation.Lookup l => PreOperation.Lookup l :: to_flat_operations ops
     | Operation.Assign (c, v) => PreOperation.Assign (c, v) :: to_flat_operations ops
-    | Operation.Circuit ⟨ _, ops', _ ⟩ => ops' ++ to_flat_operations ops
+    | Operation.Circuit ⟨ _, _, circuit ⟩ => circuit.ops ++ to_flat_operations ops
 
   -- TODO super painful, mainly because `cases` doesn't allow rich patterns -- how does this work again?
   theorem can_flatten_first : ∀ (env: ℕ → F) (ops: List (Operation F)),
@@ -307,13 +327,13 @@ def constraints_hold_from_list [Field F] : List (Operation F) → Prop
     | Operation.Assert e => e.eval = 0
     | Operation.Lookup { table, entry, index := _ } =>
         table.contains (entry.map Expression.eval)
-    | Operation.Circuit ⟨ spec, _ ⟩ => spec
+    | Operation.Circuit ⟨ soundness, _, _ ⟩ => soundness
     | _ => True
   | op :: ops => match op with
     | Operation.Assert e => (e.eval = 0) ∧ constraints_hold_from_list ops
     | Operation.Lookup { table, entry, index := _ } =>
         table.contains (entry.map Expression.eval) ∧ constraints_hold_from_list ops
-    | Operation.Circuit ⟨ spec, _, _ ⟩ => spec ∧ constraints_hold_from_list ops
+    | Operation.Circuit ⟨ soundness, _, _ ⟩ => soundness ∧ constraints_hold_from_list ops
     | _ => constraints_hold_from_list ops
 
 /--
@@ -329,15 +349,13 @@ def passes_constraint_checks_from_list [Field F] : List (Operation F) → Prop
     | Operation.Assert e => e.eval = 0
     | Operation.Lookup { table, entry, index := _ } =>
         table.contains (entry.map Expression.eval)
-    -- TODO we need to refactor Circuit to have a notion of input/assumptions
-    | Operation.Circuit ⟨ spec, _ ⟩ => spec
+    | Operation.Circuit ⟨ _, completeness, _ ⟩ => completeness
     | _ => True
   | op :: ops => match op with
     | Operation.Assert e => (e.eval = 0) ∧ passes_constraint_checks_from_list ops
     | Operation.Lookup { table, entry, index := _ } =>
         table.contains (entry.map Expression.eval) ∧ passes_constraint_checks_from_list ops
-    -- TODO we need to refactor Circuit to have a notion of input/assumptions
-    | Operation.Circuit ⟨ spec, _, _ ⟩ => spec ∧ passes_constraint_checks_from_list ops
+    | Operation.Circuit ⟨ _, completeness, _ ⟩ => completeness ∧ passes_constraint_checks_from_list ops
     | _ => passes_constraint_checks_from_list ops
 
 @[simp]
@@ -348,7 +366,7 @@ def constraints_hold (circuit: Stateful F α) : Prop :=
 def passes_constraint_checks (circuit: Stateful F α) : Prop :=
   passes_constraint_checks_from_list (circuit Context.empty).1.2
 
-@[simp]
+@[reducible]
 def output (circuit: Stateful F α) : α :=
   (circuit Context.empty).2
 
@@ -411,7 +429,7 @@ where
     passes_constraint_checks (main b_var none)
 
 @[simp]
-def subcircuit_spec (circuit: FormalCircuit F β α γ) (b_var : β.var) (a_var : α.var) :=
+def subcircuit_soundness (circuit: FormalCircuit F β α γ) (b_var : β.var) (a_var : α.var) :=
   ∀ b : β.value,
     Provable.eval F b_var = b →
     circuit.assumptions b →
@@ -419,9 +437,17 @@ def subcircuit_spec (circuit: FormalCircuit F β α γ) (b_var : β.var) (a_var 
     Provable.eval F a_var = a
   → circuit.spec b a
 
+@[simp]
+def subcircuit_completeness (circuit: FormalCircuit F β α γ) (b_var : β.var) :=
+  ∀ b : β.value,
+    Provable.eval F b_var = b →
+    circuit.assumptions b
+
 def formal_circuit_to_subcircuit
   (circuit: FormalCircuit F β α γ) (b_var : β.var) (a_option : Option α.value) :
-    (a_var: α.var) × SpecImplied F (subcircuit_spec circuit b_var a_var) :=
+    (a_var: α.var) ×
+    SubCircuit F
+    (subcircuit_soundness circuit b_var a_var) (subcircuit_completeness circuit b_var) :=
   let main := circuit.main b_var none -- TODO
 
   -- modify `main` so that we optionally force the output variable to have a fixed value
@@ -442,15 +468,25 @@ def formal_circuit_to_subcircuit
   let a_var := res.2
 
   let flat_ops := Adversarial.to_flat_operations ops
+  let soundness := subcircuit_soundness circuit b_var a_var
+  let completeness := subcircuit_completeness circuit b_var
+  let input_size := ProvableType.size F β
+  let output_size := ProvableType.size F α
 
-  have s: SpecImplied F (subcircuit_spec circuit b_var a_var) := by
-    use flat_ops
+  have s: SubCircuit F soundness completeness := by
+    let b_vars: Vector (Expression F) input_size := ProvableType.to_vars b_var
+    let assumptions (b: Vector F input_size) := circuit.assumptions (ProvableType.from_values b)
+    let a_vars: Vector (Expression F) output_size := ProvableType.to_vars a_var
 
-    intro env h_holds
+    use flat_ops, input_size, output_size, b_vars, assumptions, a_vars
+
+    -- show imply_soundness
+    intro b env h_eq_b as h_holds
+
     let a: α.value := Provable.eval_env env a_var
     intro b hb assumptions a' ha'
 
-    suffices h: Adversarial.constraints_hold env main from
+    suffices h: Adversarial.constraints_hold_from_list env ops from
       have ha : Provable.eval_env env (output main) = a := by
         dsimp [a, output, a_var, res]
         sorry
@@ -459,27 +495,28 @@ def formal_circuit_to_subcircuit
 
     guard_hyp h_holds : PreOperation.constraints_hold env (Adversarial.to_flat_operations ops)
 
-    -- show Adversarial.constraints_hold_from_list env ops
-    -- exact Adversarial.can_flatten_first env ops h_holds
+    exact Adversarial.can_flatten_first env ops h_holds
     sorry
 
   ⟨ a_var, s ⟩
 
 -- run a sub-circuit
 @[simp]
-def subcircuit (circuit: FormalCircuit F β α γ) (b: β.var) := as_stateful (
+def subcircuit (circuit: FormalCircuit F β α γ) (b: β.var) := as_stateful (F:=F) (
   fun _ =>
-    let ⟨ a, subcircuit ⟩  := formal_circuit_to_subcircuit circuit b none
-    let spec := subcircuit_spec circuit b a
-    (Operation.Circuit ⟨ spec, subcircuit ⟩, a)
+    let ⟨ a, subcircuit ⟩ := formal_circuit_to_subcircuit circuit b none
+    let soundness := subcircuit_soundness circuit b a
+    let completeness := subcircuit_completeness circuit b
+    (Operation.Circuit ⟨ soundness, completeness, subcircuit ⟩, a)
 )
 
 @[simp]
-def subcircuit_with_output (a_v: Option α.value) (circuit: FormalCircuit F β α γ) (b: β.var) := as_stateful (
+def subcircuit_with_output (a_v: Option α.value) (circuit: FormalCircuit F β α γ) (b: β.var) := as_stateful (F:=F) (
   fun _ =>
-    let ⟨ a, subcircuit ⟩ := formal_circuit_to_subcircuit circuit b a_v
-    let spec := subcircuit_spec circuit b a
-    (Operation.Circuit ⟨ spec, subcircuit ⟩, a)
+    let ⟨ a, subcircuit ⟩ := formal_circuit_to_subcircuit (F:=F) circuit b a_v
+    let soundness := subcircuit_soundness circuit b a
+    let completeness := subcircuit_completeness circuit b
+    (Operation.Circuit ⟨ soundness, completeness, subcircuit ⟩, a)
 )
 end Circuit
 
@@ -691,21 +728,10 @@ def circuit : FormalCircuit (F p) (fields (F p) 3) (field (F p)) (fields (F p) 2
     rintro h_holds z'
 
     -- characterize inputs
-    -- TODO this must be easier!
-    have h_inputs' : vec [x_var.eval, y_var.eval, carry_in_var.eval] = vec [x, y, carry_in] := h_inputs
-
-    have hx : x_var.eval = x := calc x_var.eval
-      _ = (vec [x_var.eval, y_var.eval, carry_in_var.eval]).get ⟨ 0, by norm_num ⟩ := by rfl
-      _ = (vec [x, y, carry_in]).get ⟨ 0, by norm_num ⟩ := by rw [h_inputs']
-      _ = x := by rfl
-    have hy : y_var.eval = y := calc y_var.eval
-      _ = (vec [x_var.eval, y_var.eval, carry_in_var.eval]).get ⟨ 1, by norm_num ⟩ := by rfl
-      _ = (vec [x, y, carry_in]).get ⟨ 1, by norm_num ⟩ := by rw [h_inputs']
-      _ = y := by rfl
-    have hcarry_in : carry_in_var.eval = carry_in := calc carry_in_var.eval
-      _ = (vec [x_var.eval, y_var.eval, carry_in_var.eval]).get ⟨ 2, by norm_num ⟩ := by rfl
-      _ = (vec [x, y, carry_in]).get ⟨ 2, by norm_num ⟩ := by rw [h_inputs']
-      _ = carry_in := by rfl
+    have h_inputs' : [x_var.eval, y_var.eval, carry_in_var.eval] = [x, y, carry_in] := by injection h_inputs
+    injection h_inputs' with hx h_inputs'
+    injection h_inputs' with hy h_inputs'
+    injection h_inputs' with hcarry_in
 
     -- characterize output, z' to equal (witness input) z, and replace in spec
     have hz : z' = z := rfl
@@ -742,20 +768,10 @@ def circuit : FormalCircuit (F p) (fields (F p) 3) (field (F p)) (fields (F p) 2
     rintro as
 
     -- characterize inputs
-    have h_inputs' : vec [x_var.eval, y_var.eval, carry_in_var.eval] = vec [x, y, carry_in] := h_inputs
-
-    have hx : x_var.eval = x := calc x_var.eval
-      _ = (vec [x_var.eval, y_var.eval, carry_in_var.eval]).get ⟨ 0, by norm_num ⟩ := by rfl
-      _ = (vec [x, y, carry_in]).get ⟨ 0, by norm_num ⟩ := by rw [h_inputs']
-      _ = x := by rfl
-    have hy : y_var.eval = y := calc y_var.eval
-      _ = (vec [x_var.eval, y_var.eval, carry_in_var.eval]).get ⟨ 1, by norm_num ⟩ := by rfl
-      _ = (vec [x, y, carry_in]).get ⟨ 1, by norm_num ⟩ := by rw [h_inputs']
-      _ = y := by rfl
-    have hcarry_in : carry_in_var.eval = carry_in := calc carry_in_var.eval
-      _ = (vec [x_var.eval, y_var.eval, carry_in_var.eval]).get ⟨ 2, by norm_num ⟩ := by rfl
-      _ = (vec [x, y, carry_in]).get ⟨ 2, by norm_num ⟩ := by rw [h_inputs']
-      _ = carry_in := by rfl
+    have h_inputs' : [x_var.eval, y_var.eval, carry_in_var.eval] = [x, y, carry_in] := by injection h_inputs
+    injection h_inputs' with hx h_inputs'
+    injection h_inputs' with hy h_inputs'
+    injection h_inputs' with hcarry_in
 
     -- simplify assumptions
     dsimp [assumptions] at as
@@ -806,16 +822,9 @@ def soundness_wrapped (inputs: Vector (F p) 2) (inputs_var: Vector (Expression (
   intro z'
 
   -- characterize inputs
-  have h_inputs' : vec [x_var.eval, y_var.eval] = vec [x, y] := h_inputs
-
-  have hx : x_var.eval = x := calc x_var.eval
-    _ = (vec [x_var.eval, y_var.eval]).get ⟨ 0, by norm_num ⟩ := by rfl
-    _ = (vec [x, y]).get ⟨ 0, by norm_num ⟩ := by rw [h_inputs']
-    _ = x := by rfl
-  have hy : y_var.eval = y := calc y_var.eval
-    _ = (vec [x_var.eval, y_var.eval]).get ⟨ 1, by norm_num ⟩ := by rfl
-    _ = (vec [x, y]).get ⟨ 1, by norm_num ⟩ := by rw [h_inputs']
-    _ = y := by rfl
+  have h_inputs' : [x_var.eval, y_var.eval] = [x, y] := by injection h_inputs
+  injection h_inputs' with hx h_inputs'
+  injection h_inputs' with hy
 
   -- characterize output, z' to equal (witness input) z, and replace in spec
   have hz : z' = z := by rfl
@@ -824,25 +833,26 @@ def soundness_wrapped (inputs: Vector (F p) 2) (inputs_var: Vector (Expression (
   -- simplify constraints hypothesis
   dsimp at h
 
-  -- h is just the `subcircuit_spec` of `Add8Full.circuit`
+  -- h is just `subcircuit_soundness` of `Add8Full.circuit`
   -- pass in the input values and a proof that they are correct
   have h_inputs'' : vec [x_var.eval, y_var.eval, 0] = vec [x, y, 0] := by rw [hx, hy]
-  have h1 := h (vec [x, y, 0]) h_inputs''
+  specialize h (vec [x, y, 0]) h_inputs''
 
   -- satisfy `Add8Full.assumptions` by using our own assumptions
   let ⟨ asx, asy ⟩ := as
   have as': Add8Full.assumptions (vec [x, y, 0]) := ⟨asx, asy, by tauto⟩
-  have h2 := h1 as'
+  specialize h as'
 
   -- pass in output value and a (trivial) proof that it's correct
-  have h3 : Add8Full.circuit.spec (vec [x, y, 0]) z := h2 z rfl
+  specialize h z rfl
+  guard_hyp h: Add8Full.circuit.spec (vec [x, y, 0]) z
 
   -- unfold `Add8Full` statements to show what the hypothesis is in our context
-  dsimp [Add8Full.circuit, Add8Full.spec] at h3
-  guard_hyp h3: z.val = (x.val + y.val + (0 : F p).val) % 256
+  dsimp [Add8Full.circuit, Add8Full.spec] at h
+  guard_hyp h: z.val = (x.val + y.val + (0 : F p).val) % 256
 
-  simp at h3
-  exact h3
+  simp at h
+  exact h
 
 def circuit : FormalCircuit (F p) (fields (F p) 2) (field (F p)) (field (F p)) where
   main := add8_wrapped
@@ -857,16 +867,9 @@ def circuit : FormalCircuit (F p) (fields (F p) 2) (field (F p)) (field (F p)) w
     rintro as
 
     -- characterize inputs
-    have h_inputs' : vec [x_var.eval, y_var.eval] = vec [x, y] := h_inputs
-
-    have hx : x_var.eval = x := calc x_var.eval
-      _ = (vec [x_var.eval, y_var.eval]).get ⟨ 0, by norm_num ⟩ := by rfl
-      _ = (vec [x, y]).get ⟨ 0, by norm_num ⟩ := by rw [h_inputs']
-      _ = x := by rfl
-    have hy : y_var.eval = y := calc y_var.eval
-      _ = (vec [x_var.eval, y_var.eval]).get ⟨ 1, by norm_num ⟩ := by rfl
-      _ = (vec [x, y]).get ⟨ 1, by norm_num ⟩ := by rw [h_inputs']
-      _ = y := by rfl
+    have h_inputs' : [x_var.eval, y_var.eval] = [x, y] := by injection h_inputs
+    injection h_inputs' with hx h_inputs'
+    injection h_inputs' with hy
 
     -- simplify assumptions
     dsimp [assumptions] at as
@@ -875,19 +878,16 @@ def circuit : FormalCircuit (F p) (fields (F p) 2) (field (F p)) (field (F p)) w
     dsimp
     rw [hx, hy]
 
-    -- the goal is just the `subcircuit_spec` of `Add8Full.circuit`
-    -- this gets a bit redundant because now we're introducing the same variables again, but we don't need them
-    intro inputs' h_inputs' as' z' hz'
-    rw [← hz', ← h_inputs']
+    -- the goal is just the `subcircuit_completeness` of `Add8Full.circuit`, i.e. show the assumptions hold
+    -- introduce inputs and replace them with the eval'd variables in our context
+    intro inputs' h_inputs'
+    rw [←h_inputs']
 
-    dsimp [Add8Full.circuit, Add8Full.spec, ProvableType.from_values, Vector.get]
-    simp
-
-    -- now it's just mathematics!
-    -- TODO but it feels like we're redoing the completeness proof of `Add8Full`?
-    guard_hyp as : x.val < 256 ∧ y.val < 256
-    show (mod_256 (x + y)).val = (x.val + y.val) % 256
-    sorry
+    -- simplify `Add8Full.assumptions` and prove them easily by using our own assumptions
+    dsimp [Add8Full.circuit, Add8Full.assumptions]
+    show x.val < 256 ∧ y.val < 256 ∧ (0 = 0 ∨ 0 = 1)
+    have ⟨ asx, asy ⟩ := as
+    exact ⟨ asx, asy, by tauto ⟩
 
 end Add8
 
