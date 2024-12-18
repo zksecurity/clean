@@ -33,10 +33,10 @@ open Provable (field field2 fields)
 open ByteLookup
 open Expression
 
-structure add8_full_inputs_struct (T : Type) where
-  x: T
-  y: T
-  carry_in: T
+structure add8_full_inputs_struct (F : Type) where
+  x: F
+  y: F
+  carry_in: F
 
 -- TODO: the following should be derived automatically
 -- ideally we would say
