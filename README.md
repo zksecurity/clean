@@ -1,8 +1,10 @@
 # cLean
 
-This repository is currently a playground for the team at zkSecurity to explore and master Lean.
+`clean` is an embedded Lean DSL for writing zk circuits, targeting AIR arithmetization.
 
-Its intended to become our monorepo for Lean utilities, libraries, etc.
+It is developed by zkSecurity, currently as part of a Verified-zkEVM grant.
+
+We intend to build out `clean` into a universal zk framework that can target all arithmetizations and produce formally verified, bug-free circuits for the entire zk ecosystem.
 
 ## Using the repo
 
