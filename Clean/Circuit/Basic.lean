@@ -156,8 +156,8 @@ def Stateful.operations (circuit: Stateful F α) : List (Operation F) :=
   (circuit Context.empty).1.2
 
 @[reducible]
-def output (circuit: Stateful F α) : α :=
-  (circuit Context.empty).2
+def output (circuit: Stateful F α) (ctx : Context F := Context.empty) : α :=
+  (circuit ctx).2
 
 @[simp]
 def as_stateful (f: Context F → Operation F × α) : Stateful F α := fun ctx  =>
@@ -244,8 +244,8 @@ namespace Adversarial
       | _ => constraints_hold_from_list env ops
 
   @[reducible, simp]
-  def constraints_hold [Field F] (env: (ℕ → F)) (circuit: Stateful F α) : Prop :=
-    constraints_hold_from_list env circuit.operations
+  def constraints_hold [Field F] (env: (ℕ → F)) (circuit: Stateful F α) (ctx : Context F := Context.empty) : Prop :=
+    constraints_hold_from_list env (circuit ctx).1.2
 end Adversarial
 
 /--
@@ -271,8 +271,8 @@ def constraints_hold_from_list [Field F] : List (Operation F) → Prop
     | _ => constraints_hold_from_list ops
 
 @[simp]
-def constraints_hold (circuit: Stateful F α) : Prop :=
-  constraints_hold_from_list (circuit Context.empty).1.2
+def constraints_hold (circuit: Stateful F α) (ctx : Context F := Context.empty) : Prop :=
+  constraints_hold_from_list (circuit ctx).1.2
 
 
 namespace PreOperation
@@ -366,20 +366,21 @@ where
 
   soundness:
     -- for all environments that determine witness generation
-    ∀ env: ℕ → F,
+    ∀ ctx : Context F, ∀ env: ℕ → F,
     -- for all inputs that satisfy the assumptions
     ∀ b : β.value, ∀ b_var : β.var, Provable.eval_env env b_var = b → assumptions b →
     -- if the constraints hold
-    Adversarial.constraints_hold env (main b_var) →
+    Adversarial.constraints_hold env (main b_var) ctx →
     -- the spec holds on the input and output
-    let a := Provable.eval_env env (output (main b_var))
+    let a := Provable.eval_env env (output (main b_var) ctx)
     spec b a
 
   completeness:
+    ∀ ctx : Context F,
     -- for all inputs that satisfy the assumptions
     ∀ b : β.value, ∀ b_var : β.var, Provable.eval F b_var = b → assumptions b →
     -- constraints hold when using the internal witness generator
-    constraints_hold (main b_var)
+    constraints_hold (main b_var) ctx
 
 @[simp]
 def subcircuit_soundness (circuit: FormalCircuit F β α) (b_var : β.var) (a_var : α.var) (env: ℕ → F) :=
@@ -392,10 +393,10 @@ def subcircuit_completeness (circuit: FormalCircuit F β α) (b_var : β.var) :=
   let b := Provable.eval F b_var
   circuit.assumptions b
 
-def formal_circuit_to_subcircuit
+def formal_circuit_to_subcircuit (ctx: Context F)
   (circuit: FormalCircuit F β α) (b_var : β.var) : α.var × SubCircuit F :=
   let main := circuit.main b_var
-  let res := main Context.empty
+  let res := main ctx
   -- TODO: weirdly, when we destructure we can't deduce origin of the results anymore
   -- let ((_, ops), a_var) := res
   let ops := res.1.2
@@ -420,7 +421,7 @@ def formal_circuit_to_subcircuit
 
     -- by soundness of the circuit, the spec is satisfied if only the constraints hold
     suffices h: Adversarial.constraints_hold_from_list env ops by
-      exact circuit.soundness env b b_var rfl as h
+      exact circuit.soundness ctx env b b_var rfl as h
 
     -- so we just need to go from flattened constraints to constraints
     guard_hyp h_holds : PreOperation.constraints_hold env (PreOperation.to_flat_operations ops)
@@ -433,7 +434,7 @@ def formal_circuit_to_subcircuit
     have as : circuit.assumptions b := h_completeness
 
     -- by completeness of the circuit, this means we can make the constraints hold
-    have h_holds : constraints_hold_from_list ops := circuit.completeness b b_var rfl as
+    have h_holds : constraints_hold_from_list ops := circuit.completeness ctx b b_var rfl as
 
     -- so we just need to go from constraints to flattened constraints
     exact PreOperation.can_flatten ops h_holds
@@ -443,8 +444,8 @@ def formal_circuit_to_subcircuit
 -- run a sub-circuit
 @[simp]
 def subcircuit (circuit: FormalCircuit F β α) (b: β.var) := as_stateful (F:=F) (
-  fun _ =>
-    let ⟨ a, subcircuit ⟩ := formal_circuit_to_subcircuit circuit b
+  fun ctx =>
+    let ⟨ a, subcircuit ⟩ := formal_circuit_to_subcircuit ctx circuit b
     (Operation.Circuit subcircuit, a)
 )
 end Circuit

@@ -42,7 +42,7 @@ def circuit : FormalCircuit (F p) (fields (F p) 2) (field (F p)) where
   spec := spec
   soundness := by
     -- introductions
-    rintro env ⟨ inputs, _ ⟩ ⟨ inputs_var, _ ⟩ h_inputs as
+    rintro ctx env ⟨ inputs, _ ⟩ ⟨ inputs_var, _ ⟩ h_inputs as
     let [x, y] := inputs
     let [x_var, y_var] := inputs_var
     intro h_holds z
@@ -59,7 +59,7 @@ def circuit : FormalCircuit (F p) (fields (F p) 2) (field (F p)) where
 
     -- rewrite input and ouput values
     rw [hx, hy] at h_holds
-    rw [←(by rfl : z = env 0)] at h_holds
+    rw [←(by rfl : z = env ctx.offset)] at h_holds
 
     -- satisfy `Add8Full.assumptions` by using our own assumptions
     let ⟨ asx, asy ⟩ := as
@@ -78,7 +78,7 @@ def circuit : FormalCircuit (F p) (fields (F p) 2) (field (F p)) where
 
   completeness := by
     -- introductions
-    rintro ⟨ inputs, _ ⟩ ⟨ inputs_var, _ ⟩ h_inputs
+    rintro ctx ⟨ inputs, _ ⟩ ⟨ inputs_var, _ ⟩ h_inputs
     let [x, y] := inputs
     let [x_var, y_var] := inputs_var
     rintro as

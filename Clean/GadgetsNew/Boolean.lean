@@ -8,8 +8,7 @@ import Clean.Circuit.Basic
 import Clean.Utils.Field
 
 section
-variable {p : ℕ} [Fact (p ≠ 0)] [Fact p.Prime]
-variable [p_large_enough: Fact (p > 512)]
+variable {p : ℕ} [Fact p.Prime]
 
 open Circuit
 open Expression
