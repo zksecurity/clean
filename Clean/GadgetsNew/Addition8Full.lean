@@ -59,7 +59,7 @@ def circuit : FormalCircuit (F p) (fields (F p) 3) (field (F p)) where
   spec := spec
   soundness := by
     -- introductions
-    rintro env ⟨ inputs, _ ⟩ ⟨ inputs_var, _ ⟩ h_inputs as
+    rintro ctx env ⟨ inputs, _ ⟩ ⟨ inputs_var, _ ⟩ h_inputs as
     let [x, y, carry_in] := inputs
     let [x_var, y_var, carry_in_var] := inputs_var
     rintro h_holds z'
@@ -74,11 +74,13 @@ def circuit : FormalCircuit (F p) (fields (F p) 3) (field (F p)) where
     guard_hyp hy : y_var.eval_env env = y
     guard_hyp hcarry_in : carry_in_var.eval_env env = carry_in
 
+    let i0 := ctx.offset
+    let i1 := ctx.offset + 1
     -- simplify constraints hypothesis
     dsimp at h_holds
-    let z := env 0
-    let carry_out := env 1
-    rw [←(by rfl : z = env 0), ←(by rfl : carry_out = env 1)] at h_holds
+    let z := env i0
+    let carry_out := env i1
+    rw [←(by rfl : z = env i0), ←(by rfl : carry_out = env i1)] at h_holds
     rw [hx, hy, hcarry_in] at h_holds
     let ⟨ h_byte, h_bool_carry, h_add ⟩ := h_holds
 
@@ -106,7 +108,7 @@ def circuit : FormalCircuit (F p) (fields (F p) 3) (field (F p)) where
 
   completeness := by
     -- introductions
-    rintro ⟨ inputs, _ ⟩ ⟨ inputs_var, _ ⟩ h_inputs
+    rintro ctx ⟨ inputs, _ ⟩ ⟨ inputs_var, _ ⟩ h_inputs
     let [x, y, carry_in] := inputs
     let [x_var, y_var, carry_in_var] := inputs_var
     rintro as
