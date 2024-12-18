@@ -244,7 +244,7 @@ namespace Adversarial
       | _ => constraints_hold_from_list env ops
 
   @[reducible, simp]
-    def constraints_hold [Field F] (env: (ℕ → F)) (circuit: Stateful F α) (ctx : Context F := Context.empty) : Prop :=
+  def constraints_hold [Field F] (env: (ℕ → F)) (circuit: Stateful F α) (ctx : Context F := Context.empty) : Prop :=
     constraints_hold_from_list env (circuit ctx).1.2
 end Adversarial
 
