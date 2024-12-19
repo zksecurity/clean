@@ -19,7 +19,7 @@ open Lean.Elab.Deriving.Context
 open Lean.Parser.Term
 
 def mkReprHeader (indVal : InductiveVal) : TermElabM Header := do
-  let header ← mkHeader `Repr 1 indVal
+  let header ← mkHeader `ProvableType 1 indVal
   return { header with
     binders := header.binders.push (← `(bracketedBinderF| (prec : Nat)))
   }
@@ -35,6 +35,7 @@ def mkBodyForStruct (header : Header) (indVal : InductiveVal) : TermElabM Term :
       throwError "'deriving Repr' failed, unexpected number of fields in structure"
     for h : i in [:fieldNames.size] do
       let fieldName := fieldNames[i]
+      dbg_trace "fieldName {fieldName}"
       let fieldNameLit := Syntax.mkStrLit (toString fieldName)
       let x := xs[numParams + i]!
       if i != 0 then
@@ -46,58 +47,19 @@ def mkBodyForStruct (header : Header) (indVal : InductiveVal) : TermElabM Term :
         fields ← `($fields ++ $fieldNameLit ++ " := " ++ (Format.group (Format.nest $indent (repr ($target.$(mkIdent fieldName):ident)))))
     `(Format.bracket "{ " $fields:term " }")
 
-def mkBodyForInduct (header : Header) (indVal : InductiveVal) (auxFunName : Name) : TermElabM Term := do
-  let discrs ← mkDiscrs header indVal
-  let alts ← mkAlts
-  `(match $[$discrs],* with $alts:matchAlt*)
-where
-  mkAlts : TermElabM (Array (TSyntax ``matchAlt)) := do
-    let mut alts := #[]
-    for ctorName in indVal.ctors do
-      let ctorInfo ← getConstInfoCtor ctorName
-      let alt ← forallTelescopeReducing ctorInfo.type fun xs _ => do
-        let mut patterns := #[]
-        -- add `_` pattern for indices
-        for _ in [:indVal.numIndices] do
-          patterns := patterns.push (← `(_))
-        let mut ctorArgs := #[]
-        let mut rhs : Term := Syntax.mkStrLit (toString ctorInfo.name)
-        rhs ← `(Format.text $rhs)
-        for h : i in [:xs.size] do
-          -- Note: some inductive parameters are explicit if they were promoted from indices,
-          -- so we process all constructor arguments in the same loop.
-          let x := xs[i]
-          let a ← mkIdent <$> if i < indVal.numParams then pure header.argNames[i]! else mkFreshUserName `a
-          if i < indVal.numParams then
-            -- add `_` for inductive parameters, they are inaccessible
-            ctorArgs := ctorArgs.push (← `(_))
-          else
-            ctorArgs := ctorArgs.push a
-          if (← x.fvarId!.getBinderInfo).isExplicit then
-            if (← inferType x).isAppOf indVal.name then
-              rhs ← `($rhs ++ Format.line ++ $(mkIdent auxFunName):ident $a:ident max_prec)
-            else if (← isType x <||> isProof x) then
-              rhs ← `($rhs ++ Format.line ++ "_")
-            else
-              rhs ← `($rhs ++ Format.line ++ reprArg $a)
-        patterns := patterns.push (← `(@$(mkIdent ctorName):ident $ctorArgs:term*))
-        `(matchAltExpr| | $[$patterns:term],* => Repr.addAppParen (Format.group (Format.nest (if prec >= max_prec then 1 else 2) ($rhs:term))) prec)
-      alts := alts.push alt
-    return alts
-
-def mkBody (header : Header) (indVal : InductiveVal) (auxFunName : Name) : TermElabM Term := do
+def mkBody (header : Header) (indVal : InductiveVal) : TermElabM Term := do
   if isStructure (← getEnv) indVal.name then
     mkBodyForStruct header indVal
   else
-    mkBodyForInduct header indVal auxFunName
+    throwError "deriving ProvableType for inductive types is not supported yet"
 
 def mkAuxFunction (ctx : Elab.Deriving.Context) (i : Nat) : TermElabM Command := do
   let auxFunName := ctx.auxFunNames[i]!
   let indVal     := ctx.typeInfos[i]!
   let header     ← mkReprHeader indVal
-  let mut body   ← mkBody header indVal auxFunName
+  let mut body   ← mkBody header indVal
   if ctx.usePartial then
-    let letDecls ← mkLocalInstanceLetDecls ctx `Repr header.argNames
+    let letDecls ← mkLocalInstanceLetDecls ctx `ProvableType header.argNames
     body ← mkLet letDecls body
   let binders    := header.binders
   if ctx.usePartial then
@@ -115,25 +77,34 @@ def mkMutualBlock (ctx : Elab.Deriving.Context) : TermElabM Syntax := do
 
 private def mkProvableType (declName : Name) : TermElabM (Array Syntax) := do
   let ctx ← mkContext "repr" declName
+  dbg_trace "mkProvableType {declName}"
   let cmds := #[← mkMutualBlock ctx] ++ (← mkInstanceCmds ctx `ProvableType #[declName])
-  trace[Elab.Deriving.repr] "\n{cmds}"
+  dbg_trace "cmds: {cmds}"
   return cmds
 
 
 def mkProvableInstance (declName : Name) (fieldtype : Expr) : CommandElabM Bool := do
   if ←isInductive declName then
     dbg_trace "mkProvableInstance {declName} {fieldtype}"
-    -- let cmds ← mkProvableType declName
+    let cmds ← liftTermElabM <| mkProvableType declName
+    cmds.forM elabCommand
     return true
   else
     return false
 
-elab "derive_provable " class_name:term " as " struct_name:term " with " var_types:term "," val_types:term  : command => do
-  dbg_trace "deriving provable for {class_name} {struct_name}"
+/--
+Derive a provable type instance for a type.
+The provable instance can be instantiated automatically over types which are parametrized
+by only one type T. The supported types are:
+- Structures with fields which are either T or a type (recursively) inantiatiable
+  to a provable structure over T
+-/
+elab "derive_provable " type_name:term " as " instance_name:term " with " var_types:term "," val_types:term  : command => do
+  dbg_trace "deriving provable for {type_name} {instance_name}"
   dbg_trace "types: {var_types} {val_types}"
 
   let name : Name ← liftCoreM do
-    realizeGlobalConstNoOverloadWithInfo class_name
+    realizeGlobalConstNoOverloadWithInfo type_name
   let field_type : Expr ← liftTermElabM do
     let field_type ← elabType var_types
     return field_type
@@ -143,20 +114,22 @@ elab "derive_provable " class_name:term " as " struct_name:term " with " var_typ
 
 end DerivingProvable
 
-
 section --example
-
-
 
 #check ProvableType
 
 open DerivingProvable
 variable (F : Type)
 
-structure ExampleStruct (T : Type) where
+structure Example2 (T : Type) where
   x : T
   y : T
 
-derive_provable ExampleStruct as Example with Bool, (F)
+structure ExampleStruct (T : Type) where
+  r : Example2 T
+  z : T
+
+-- derive_provable ExampleStruct as Example with Bool, F
+
 
 end
