@@ -87,4 +87,14 @@ theorem boolean_le_2 (b : F p) (hb : b = 0 ∨ b = 1) : b.val < 2 := by
   · rw [h0]; simp
   · rw [h1]; simp [ZMod.val_one]
 
+def nat_to_field (n: ℕ) (lt: n < p) : F p :=
+  match p with
+  | 0 => False.elim (Nat.not_lt_zero n lt)
+  | _ + 1 => ⟨ n, lt ⟩
+
+theorem nat_to_field_eq {n: ℕ} {lt: n < p} (x : F p) (hx: x = nat_to_field n lt) : x.val = n := by
+  cases p
+  · exact False.elim (Nat.not_lt_zero n lt)
+  · rw [hx]; rfl
+
 end FieldUtils
