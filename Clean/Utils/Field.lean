@@ -97,4 +97,18 @@ theorem nat_to_field_eq {n: ℕ} {lt: n < p} (x : F p) (hx: x = nat_to_field n l
   · exact False.elim (Nat.not_lt_zero n lt)
   · rw [hx]; rfl
 
+def less_than_p [p_pos: Fact (p ≠ 0)] (x: F p) : x.val < p := by
+  rcases p
+  · have : 0 ≠ 0 := p_pos.elim; tauto
+  · exact x.is_lt
+
+def mod (x: F p) (c: ℕ+) (lt: c < p) : F p :=
+  FieldUtils.nat_to_field (x.val % c) (by linarith [Nat.mod_lt x.val c.pos, lt])
+
+def mod_256 (x: F p) [p_large_enough: Fact (p > 512)] : F p :=
+  mod x 256 (by linarith [p_large_enough.elim])
+
+def floordiv [Fact (p ≠ 0)] (x: F p) (c: ℕ+) : F p :=
+  FieldUtils.nat_to_field (x.val / c) (by linarith [Nat.div_le_self x.val c, less_than_p x])
+
 end FieldUtils

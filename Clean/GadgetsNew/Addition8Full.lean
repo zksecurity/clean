@@ -8,25 +8,11 @@ import Clean.Circuit.Basic
 import Clean.Utils.Field
 import Clean.GadgetsNew.ByteLookup
 import Clean.GadgetsNew.Boolean
+import Clean.GadgetsNew.Addition8FullCarry
 
 namespace Add8Full
 variable {p : ℕ} [Fact (p ≠ 0)] [Fact p.Prime]
 variable [p_large_enough: Fact (p > 512)]
-
-def less_than_p [p_pos: Fact (p ≠ 0)] (x: F p) : x.val < p := by
-  rcases p
-  · have : 0 ≠ 0 := p_pos.elim; tauto
-  · exact x.is_lt
-
-def mod (x: F p) (c: ℕ+) (lt: c < p) : F p :=
-  FieldUtils.nat_to_field (x.val % c) (by linarith [Nat.mod_lt x.val c.pos, lt])
-
-def mod_256 (x: F p) : F p :=
-  mod x 256 (by linarith [p_large_enough.elim])
-
-def floordiv [Fact (p ≠ 0)] (x: F p) (c: ℕ+) : F p :=
-  FieldUtils.nat_to_field (x.val / c) (by linarith [Nat.div_le_self x.val c, less_than_p x])
-
 
 open Circuit
 open Provable (field field2 fields)
@@ -56,14 +42,13 @@ instance : ProvableType (F p) (add8_full_inputs p) where
 def add8_full (input : (add8_full_inputs p).var) := do
   let ⟨x, y, carry_in⟩ := input
 
-  let z ← witness (fun () => mod_256 (x + y + carry_in))
-  byte_lookup z
+  let res ← subcircuit Add8FullCarry.circuit {
+    x := x,
+    y := y,
+    carry_in := carry_in
+  }
 
-  let carry_out ← witness (fun () => floordiv (x + y + carry_in) 256)
-  assert_bool carry_out
-
-  assert_zero (x + y + carry_in - z - carry_out * (const 256))
-  return z
+  return res.z
 
 def assumptions (input : (add8_full_inputs p).value) :=
   let ⟨x, y, carry_in⟩ := input
@@ -82,44 +67,35 @@ def circuit : FormalCircuit (F p) (add8_full_inputs p) (field (F p)) where
     rintro ctx env inputs inputs_var h_inputs as
     let ⟨x, y, carry_in⟩ := inputs
     let ⟨x_var, y_var, carry_in_var⟩ := inputs_var
-    rintro h_holds z'
+    intro h_holds z
 
     -- characterize inputs
     have hx : x_var.eval_env env = x := by injection h_inputs
     have hy : y_var.eval_env env = y := by injection h_inputs
     have hcarry_in : carry_in_var.eval_env env = carry_in := by injection h_inputs
 
-    let i0 := ctx.offset
-    let i1 := ctx.offset + 1
     -- simplify constraints hypothesis
+    -- it's just the `subcircuit_soundness` of `Add8Full.circuit`
     dsimp at h_holds
-    let z := env i0
-    let carry_out := env i1
-    rw [←(by rfl : z = env i0), ←(by rfl : carry_out = env i1)] at h_holds
+
+    -- rewrite input and ouput values
     rw [hx, hy, hcarry_in] at h_holds
-    let ⟨ h_byte, h_bool_carry, h_add ⟩ := h_holds
+    rw [←(by rfl : z = env ctx.offset)] at h_holds
 
-    -- characterize output and replace in spec
-    rw [(by rfl : z' = z)]
+    -- satisfy `Add8Full.assumptions` by using our own assumptions
+    let ⟨ asx, asy, as_carry_in ⟩ := as
+    have as': Add8FullCarry.circuit.assumptions { x := x, y := y, carry_in := carry_in } := ⟨asx, asy, as_carry_in⟩
+    specialize h_holds (by assumption)
+    dsimp [ProvableType.from_values] at h_holds
 
-    -- simplify assumptions and spec
-    dsimp [spec]
-    dsimp [assumptions] at as
+    guard_hyp h_holds : Add8FullCarry.circuit.spec { x := x, y := y, carry_in := carry_in } z
 
-    -- now it's just mathematics!
-    guard_hyp as : x.val < 256 ∧ y.val < 256 ∧ (carry_in = 0 ∨ carry_in = 1)
-    guard_hyp h_byte: ByteTable.contains (vec [z])
-    guard_hyp h_bool_carry: carry_out * (carry_out + -1 * 1) = 0
-    guard_hyp h_add: x + y + carry_in + -1 * z + -1 * (carry_out * 256) = 0
+    -- unfold `Add8Full` statements to show what the hypothesis is in our context
+    dsimp [Add8Full.circuit, Add8Full.spec] at h_holds
+    guard_hyp h_holds : z.val = (x.val + y.val + (0 : F p).val) % 256
 
-    show z.val = (x.val + y.val + carry_in.val) % 256
-
-    -- reuse Boolean.equiv
-    have h_bool_carry': carry_out = 0 ∨ carry_out = 1 := (Boolean.equiv carry_out).mp h_bool_carry
-    -- reuse ByteTable.soundness
-    have h_byte': z.val < 256 := ByteTable.soundness z h_byte
-    sorry
-
+    simp at h_holds
+    exact h_holds
 
   completeness := by
     -- introductions
@@ -133,23 +109,15 @@ def circuit : FormalCircuit (F p) (add8_full_inputs p) (field (F p)) where
     have hy : y_var.eval = y := by injection h_inputs
     have hcarry_in : carry_in_var.eval = carry_in := by injection h_inputs
 
-    -- simplify assumptions
+    -- simplify assumptions and goal
     dsimp [assumptions] at as
-
-    -- unfold goal, (re)introduce names for some of unfolded variables
     dsimp
     rw [hx, hy, hcarry_in]
-    let z := mod_256 (x + y + carry_in)
-    let carry_out := floordiv (x + y + carry_in) 256
-    rw [←(by rfl : z = mod_256 (x + y + carry_in))]
-    rw [←(by rfl : carry_out = floordiv (x + y + carry_in) 256)]
 
-    -- now it's just mathematics!
-    guard_hyp as : x.val < 256 ∧ y.val < 256 ∧ (carry_in = 0 ∨ carry_in = 1)
+    -- the goal is just the `subcircuit_completeness` of `Add8Full.circuit`, i.e. the assumptions must hold
+    -- simplify `Add8Full.assumptions` and prove them easily by using our own assumptions
+    dsimp [Add8FullCarry.circuit, Add8FullCarry.assumptions]
+    have ⟨ asx, asy, as_cin ⟩ := as
+    simp [asx, asy, as_cin]
 
-    let goal_byte := ByteTable.contains (vec [z])
-    let goal_bool := carry_out * (carry_out + -1 * 1) = 0
-    let goal_add := x + y + carry_in + -1 * z + -1 * (carry_out * 256) = 0
-    show goal_byte ∧ goal_bool ∧ goal_add
-    sorry
 end Add8Full
