@@ -75,22 +75,22 @@ def add32_full (input : (add32_full_inputs p).var) : Stateful (F p) (add32_full_
   let {
     z := z0,
     carry_out := c0
-  } ← Add8FullCarry.add8_full_carry ⟨ x.x0, y.x0, carry_in ⟩
+  } ← subcircuit Add8FullCarry.circuit ⟨ x.x0, y.x0, carry_in ⟩
 
   let {
     z := z1,
     carry_out := c1
-  } ← Add8FullCarry.add8_full_carry ⟨ x.x1, y.x1, c0 ⟩
+  } ← subcircuit Add8FullCarry.circuit ⟨ x.x1, y.x1, c0 ⟩
 
   let {
     z := z2,
     carry_out := c2
-  } ← Add8FullCarry.add8_full_carry ⟨ x.x2, y.x2, c1 ⟩
+  } ← subcircuit Add8FullCarry.circuit ⟨ x.x2, y.x2, c1 ⟩
 
   let {
     z := z3,
     carry_out := c3
-  } ← Add8FullCarry.add8_full_carry ⟨ x.x3, y.x3, c2 ⟩
+  } ← subcircuit Add8FullCarry.circuit ⟨ x.x3, y.x3, c2 ⟩
 
   return {
     z := U32.mk z0 z1 z2 z3,
