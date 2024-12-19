@@ -8,7 +8,7 @@ import Clean.Circuit.Basic
 import Clean.Utils.Field
 import Clean.GadgetsNew.ByteLookup
 import Clean.GadgetsNew.Boolean
-import Clean.GadgetsNew.Addition8FullCarry
+import Clean.GadgetsNew.Add8.Addition8FullCarry
 
 namespace Add8Full
 variable {p : ℕ} [Fact (p ≠ 0)] [Fact p.Prime]
@@ -19,7 +19,7 @@ open Provable (field field2 fields)
 open ByteLookup
 open Expression
 
-structure add8_full_inputs_struct (F : Type) where
+structure InputStruct (F : Type) where
   x: F
   y: F
   carry_in: F
@@ -27,19 +27,19 @@ structure add8_full_inputs_struct (F : Type) where
 -- TODO: the following should be derived automatically
 -- ideally we would say
 -- derive_provable_type add8_full_inputs_struct as add8_full_inputs with (Expression (F p)) (F p)
-def add8_full_inputs (p : ℕ) : TypePair := ⟨
-  add8_full_inputs_struct (Expression (F p)),
-  add8_full_inputs_struct (F p)
+def Inputs (p : ℕ) : TypePair := ⟨
+  InputStruct (Expression (F p)),
+  InputStruct (F p)
 ⟩
 
-instance : ProvableType (F p) (add8_full_inputs p) where
+instance : ProvableType (F p) (Inputs p) where
   size := 3
   to_vars s := vec [s.x, s.y, s.carry_in]
   from_vars v := ⟨ v.get ⟨ 0, by norm_num ⟩, v.get ⟨ 1, by norm_num ⟩, v.get ⟨ 2, by norm_num ⟩ ⟩
   to_values s := vec [s.x, s.y, s.carry_in]
   from_values v := ⟨ v.get ⟨ 0, by norm_num ⟩, v.get ⟨ 1, by norm_num ⟩, v.get ⟨ 2, by norm_num ⟩ ⟩
 
-def add8_full (input : (add8_full_inputs p).var) := do
+def add8_full (input : (Inputs p).var) := do
   let ⟨x, y, carry_in⟩ := input
 
   let res ← subcircuit Add8FullCarry.circuit {
@@ -50,15 +50,15 @@ def add8_full (input : (add8_full_inputs p).var) := do
 
   return res.z
 
-def assumptions (input : (add8_full_inputs p).value) :=
+def assumptions (input : (Inputs p).value) :=
   let ⟨x, y, carry_in⟩ := input
   x.val < 256 ∧ y.val < 256 ∧ (carry_in = 0 ∨ carry_in = 1)
 
-def spec (input : (add8_full_inputs p).value) (z: F p) :=
+def spec (input : (Inputs p).value) (z: F p) :=
   let ⟨x, y, carry_in⟩ := input
   z.val = (x.val + y.val + carry_in.val) % 256
 
-def circuit : FormalCircuit (F p) (add8_full_inputs p) (field (F p)) where
+def circuit : FormalCircuit (F p) (Inputs p) (field (F p)) where
   main := add8_full
   assumptions := assumptions
   spec := spec

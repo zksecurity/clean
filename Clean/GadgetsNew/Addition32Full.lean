@@ -8,7 +8,7 @@ import Clean.Circuit.Basic
 import Clean.Utils.Field
 import Clean.GadgetsNew.ByteLookup
 import Clean.GadgetsNew.Boolean
-import Clean.GadgetsNew.Addition8FullCarry
+import Clean.GadgetsNew.Add8.Addition8FullCarry
 import Clean.Types.U32
 
 namespace Addition32Full

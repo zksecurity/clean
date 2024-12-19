@@ -18,7 +18,7 @@ open Provable (field field2 fields)
 open ByteLookup
 open Expression
 
-structure InputsStruct (F : Type) where
+structure InputStruct (F : Type) where
   x: F
   y: F
   carry_in: F
@@ -27,8 +27,8 @@ structure InputsStruct (F : Type) where
 -- ideally we would say
 -- derive_provable_type InputsStruct as add8_full_inputs with (Expression (F p)) (F p)
 def Inputs (p : ℕ) : TypePair := ⟨
-  InputsStruct (Expression (F p)),
-  InputsStruct (F p)
+  InputStruct (Expression (F p)),
+  InputStruct (F p)
 ⟩
 
 instance : ProvableType (F p) (Inputs p) where
@@ -39,16 +39,16 @@ instance : ProvableType (F p) (Inputs p) where
   from_values v := ⟨ v.get ⟨ 0, by norm_num ⟩, v.get ⟨ 1, by norm_num ⟩, v.get ⟨ 2, by norm_num ⟩ ⟩
 
 
-structure add8_full_outputs_struct (F : Type) where
+structure OutputStruct (F : Type) where
   z: F
   carry_out: F
 
-def add8_full_outputs (p : ℕ) : TypePair := ⟨
-  add8_full_outputs_struct (Expression (F p)),
-  add8_full_outputs_struct (F p)
+def Outputs (p : ℕ) : TypePair := ⟨
+  OutputStruct (Expression (F p)),
+  OutputStruct (F p)
 ⟩
 
-instance : ProvableType (F p) (add8_full_outputs p) where
+instance : ProvableType (F p) (Outputs p) where
   size := 2
   to_vars s := vec [s.z, s.carry_out]
   from_vars v := ⟨ v.get ⟨ 0, by norm_num ⟩, v.get ⟨ 1, by norm_num ⟩ ⟩
@@ -56,7 +56,7 @@ instance : ProvableType (F p) (add8_full_outputs p) where
   from_values v := ⟨ v.get ⟨ 0, by norm_num ⟩, v.get ⟨ 1, by norm_num ⟩ ⟩
 
 
-def add8_full_carry (input : (Inputs p).var) : Stateful (F p) (add8_full_outputs p).var := do
+def add8_full_carry (input : (Inputs p).var) : Stateful (F p) (Outputs p).var := do
   let ⟨x, y, carry_in⟩ := input
 
   let z ← witness (fun () => FieldUtils.mod_256 (x + y + carry_in))
@@ -75,17 +75,17 @@ def assumptions (input : (Inputs p).value) :=
   let ⟨x, y, carry_in⟩ := input
   x.val < 256 ∧ y.val < 256 ∧ (carry_in = 0 ∨ carry_in = 1)
 
-def spec (input : (Inputs p).value) (out : (add8_full_outputs p).value) :=
+def spec (input : (Inputs p).value) (out : (Outputs p).value) :=
   let ⟨x, y, carry_in⟩ := input
   out.z.val = (x.val + y.val + carry_in.val) % 256 ∧
   out.carry_out.val = (x.val + y.val + carry_in.val) / 256
 
-def circuit : FormalCircuit (F p) (Inputs p) (add8_full_outputs p) where
+def circuit : FormalCircuit (F p) (Inputs p) (Outputs p) where
   main := add8_full_carry
   assumptions := assumptions
   spec := spec
   soundness := by
-      -- introductions
+    -- introductions
     rintro ctx env inputs inputs_var h_inputs as
     let ⟨x, y, carry_in⟩ := inputs
     let ⟨x_var, y_var, carry_in_var⟩ := inputs_var
