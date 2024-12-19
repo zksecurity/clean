@@ -21,7 +21,11 @@ open Expression
 
 def add8 (input : Vector (Expression (F p)) 2) := do
   let ⟨ [x, y], _ ⟩ := input
-  let z ← subcircuit Add8Full.circuit (vec [x, y, const 0])
+  let z ← subcircuit Add8Full.circuit {
+    x := x,
+    y := y,
+    carry_in := const 0
+  }
   return z
 
 def spec (input : Vector (F p) 2) (z: F p) :=
@@ -59,10 +63,11 @@ def circuit : FormalCircuit (F p) (fields (F p) 2) (field (F p)) where
 
     -- satisfy `Add8Full.assumptions` by using our own assumptions
     let ⟨ asx, asy ⟩ := as
-    have as': Add8Full.assumptions (vec [x, y, 0]) := ⟨asx, asy, by tauto⟩
+    have as': Add8Full.assumptions { x := x, y := y, carry_in := 0 } := ⟨asx, asy, by tauto⟩
     specialize h_holds as'
+    dsimp [ProvableType.from_values] at h_holds
 
-    guard_hyp h_holds : Add8Full.circuit.spec (vec [x, y, 0]) z
+    guard_hyp h_holds : Add8Full.circuit.spec { x := x, y := y, carry_in := 0 } z
 
     -- unfold `Add8Full` statements to show what the hypothesis is in our context
     dsimp [Add8Full.circuit, Add8Full.spec] at h_holds
