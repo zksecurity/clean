@@ -15,21 +15,6 @@ namespace Addition32Full
 variable {p : ℕ} [Fact (p ≠ 0)] [Fact p.Prime]
 variable [p_large_enough: Fact (p > 512)]
 
-def less_than_p [p_pos: Fact (p ≠ 0)] (x: F p) : x.val < p := by
-  rcases p
-  · have : 0 ≠ 0 := p_pos.elim; tauto
-  · exact x.is_lt
-
-def mod (x: F p) (c: ℕ+) (lt: c < p) : F p :=
-  FieldUtils.nat_to_field (x.val % c) (by linarith [Nat.mod_lt x.val c.pos, lt])
-
-def mod_256 (x: F p) : F p :=
-  mod x 256 (by linarith [p_large_enough.elim])
-
-def floordiv [Fact (p ≠ 0)] (x: F p) (c: ℕ+) : F p :=
-  FieldUtils.nat_to_field (x.val / c) (by linarith [Nat.div_le_self x.val c, less_than_p x])
-
-
 open Circuit
 open Provable (field field2 fields)
 open ByteLookup

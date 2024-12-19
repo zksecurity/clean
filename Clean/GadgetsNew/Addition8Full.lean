@@ -88,13 +88,15 @@ def circuit : FormalCircuit (F p) (add8_full_inputs p) (field (F p)) where
     specialize h_holds (by assumption)
     dsimp [ProvableType.from_values] at h_holds
 
-    guard_hyp h_holds : Add8FullCarry.circuit.spec { x := x, y := y, carry_in := carry_in } z
+    guard_hyp h_holds : Add8FullCarry.circuit.spec
+      { x := x, y := y, carry_in := carry_in }
+      { z := z, carry_out := env (ctx.offset + 1) }
 
     -- unfold `Add8Full` statements to show what the hypothesis is in our context
-    dsimp [Add8Full.circuit, Add8Full.spec] at h_holds
-    guard_hyp h_holds : z.val = (x.val + y.val + (0 : F p).val) % 256
-
-    simp at h_holds
+    dsimp [Add8FullCarry.circuit, Add8FullCarry.spec] at h_holds
+    -- discard second part of the spec
+    have ⟨ h_holds, _ ⟩ := h_holds
+    guard_hyp h_holds : z.val = (x.val + y.val + carry_in.val) % 256
     exact h_holds
 
   completeness := by
