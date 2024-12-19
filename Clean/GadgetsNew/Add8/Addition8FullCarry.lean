@@ -8,6 +8,7 @@ import Clean.Circuit.Basic
 import Clean.Utils.Field
 import Clean.GadgetsNew.ByteLookup
 import Clean.GadgetsNew.Boolean
+import Clean.GadgetsNew.Add8.Theorems
 
 namespace Add8FullCarry
 variable {p : ℕ} [Fact (p ≠ 0)] [Fact p.Prime]
@@ -124,7 +125,10 @@ def circuit : FormalCircuit (F p) (Inputs p) (Outputs p) where
     have h_bool_carry': carry_out = 0 ∨ carry_out = 1 := (Boolean.equiv carry_out).mp h_bool_carry
     -- reuse ByteTable.soundness
     have h_byte': z.val < 256 := ByteTable.soundness z h_byte
-    sorry
+
+    have ⟨as_x, as_y, as_carry_in⟩ := as
+    apply Add8Theorems.soundness x y z carry_in carry_out as_x as_y h_byte' as_carry_in h_bool_carry' h_add
+
   completeness := by
    -- introductions
     rintro ctx inputs inputs_var h_inputs
