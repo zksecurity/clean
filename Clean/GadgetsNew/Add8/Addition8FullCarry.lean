@@ -159,5 +159,15 @@ def circuit : FormalCircuit (F p) (Inputs p) (Outputs p) where
     let goal_bool := carry_out * (carry_out + -1 * 1) = 0
     let goal_add := x + y + carry_in + -1 * z + -1 * (carry_out * 256) = 0
     show goal_byte ∧ goal_bool ∧ goal_add
+
+    have z_byte : z.val < 256 := by
+      dsimp [z]
+      simp only [FieldUtils.mod_256, FieldUtils.mod]
+      rw [FieldUtils.val_of_nat_to_field_eq]
+      apply Nat.mod_lt
+      linarith
+    have completeness1 : goal_byte := ByteTable.completeness z z_byte
+    simp [completeness1]
+
     sorry
 end Add8FullCarry

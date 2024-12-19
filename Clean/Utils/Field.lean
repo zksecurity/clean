@@ -97,6 +97,16 @@ theorem nat_to_field_eq {n: ℕ} {lt: n < p} (x : F p) (hx: x = nat_to_field n l
   · exact False.elim (Nat.not_lt_zero n lt)
   · rw [hx]; rfl
 
+theorem nat_to_field_of_val_eq_iff {x : F p} {lt: x.val < p} : nat_to_field (x.val) lt = x := by
+  cases p
+  · exact False.elim (Nat.not_lt_zero x.val lt)
+  · dsimp [nat_to_field]; aesop
+
+theorem val_of_nat_to_field_eq {n: ℕ} {lt: n < p} : (nat_to_field n lt).val = n := by
+  cases p
+  · exact False.elim (Nat.not_lt_zero n lt)
+  · rfl
+
 def less_than_p [p_pos: Fact (p ≠ 0)] (x: F p) : x.val < p := by
   rcases p
   · have : 0 ≠ 0 := p_pos.elim; tauto
