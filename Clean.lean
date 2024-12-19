@@ -5,3 +5,4 @@
 
 -- new version
 import Clean.Examples.Gadgets
+import Clean.GadgetsNew.Addition32Full
