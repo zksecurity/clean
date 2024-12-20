@@ -20,6 +20,7 @@ theorem soundness_zero_carry (x y out carry_in: F p):
     (carry_in + x + y - out = 0 -> (out.val = (carry_in.val + x.val + y.val) % 256
     ∧ (carry_in.val + x.val + y.val) / 256 = 0)) := by
   intros hx hy hout hb h
+  -- we show that the sum do not overflow the field
   have not_wrap := FieldUtils.byte_sum_and_bit_do_not_wrap x y carry_in hx hy hb
   rw [sub_eq_zero] at h
   apply_fun ZMod.val at h
@@ -49,6 +50,8 @@ theorem soundness_one_carry (x y out carry_in: F p):
   rw [not_wrap, out_plus_256_not_wrap] at h
   have h : (carry_in.val + x.val + y.val) - 256 = out.val :=
     Eq.symm (Nat.eq_sub_of_add_eq (Eq.symm h))
+
+  -- reason about the bounds of the sum
   have sum_bound := FieldUtils.byte_sum_le_bound x y hx hy
   have sum_le_511 : carry_in.val + (x + y).val ≤ 511 := by
     apply Nat.le_sub_one_of_lt at sum_bound
@@ -64,6 +67,7 @@ theorem soundness_one_carry (x y out carry_in: F p):
   set carry_in := carry_in.val
   set out := out.val
 
+  -- if the carry is one, then surely the sum does not fit in a byte
   have x_plus_y_overflow_byte : carry_in + x + y ≥ 256 := by
     have h2 : out + 256 >= 256 := by simp
     rw [←h] at h2
@@ -79,7 +83,12 @@ theorem soundness_one_carry (x y out carry_in: F p):
       apply Nat.lt_add_one_of_le
       assumption
 
-
+/--
+  Soundness of the 8-bit addition circuit: assuming that the constraints and assumptions
+  are satisfied, the output is correctly the sum of the inputs and the input
+  carry modulo 256. Additionally the output carry is exactly the integer division
+  of the aforementioned sum by 256.
+-/
 theorem soundness (x y out carry_in carry_out: F p):
     x.val < 256 -> y.val < 256 ->
     out.val < 256 ->
@@ -122,6 +131,7 @@ theorem soundness (x y out carry_in carry_out: F p):
       ring_nf at h; ring_nf
       assumption
 
+    -- instantiate the sub-theorem
     have thm := soundness_one_carry x y out carry_in hx hy hout carry_in_bound h_spec
     apply_fun ZMod.val at one_carry
 
@@ -134,7 +144,9 @@ theorem soundness (x y out carry_in carry_out: F p):
     · exact thm.left
     · exact one_carry
 
-
+/--
+  Given the default witness generation, we show that the addition constraint is satisfied
+-/
 theorem completeness_add [p_neq_zero : Fact (p ≠ 0)] (x y carry_in: F p) :
     x.val < 256 ->
     y.val < 256 ->
@@ -184,7 +196,10 @@ theorem completeness_add [p_neq_zero : Fact (p ≠ 0)] (x y carry_in: F p) :
     rw [h, T_not_wrap]
   · apply ZMod.val_injective
 
-
+/--
+  Given the default witness generation, we show that the output carry
+  is either 0 or 1
+-/
 theorem completeness_bool [p_neq_zero : Fact (p ≠ 0)] (x y carry_in: F p) :
     x.val < 256 ->
     y.val < 256 ->

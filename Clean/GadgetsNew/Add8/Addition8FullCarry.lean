@@ -24,9 +24,6 @@ structure InputStruct (F : Type) where
   y: F
   carry_in: F
 
--- TODO: the following should be derived automatically
--- ideally we would say
--- derive_provable_type InputsStruct as add8_full_inputs with (Expression (F p)) (F p)
 def Inputs (p : ℕ) : TypePair := ⟨
   InputStruct (Expression (F p)),
   InputStruct (F p)
@@ -56,17 +53,19 @@ instance : ProvableType (F p) (Outputs p) where
   to_values s := vec [s.z, s.carry_out]
   from_values v := ⟨ v.get ⟨ 0, by norm_num ⟩, v.get ⟨ 1, by norm_num ⟩ ⟩
 
-
 def add8_full_carry (input : (Inputs p).var) : Stateful (F p) (Outputs p).var := do
   let ⟨x, y, carry_in⟩ := input
 
+  -- witness the result
   let z ← witness (fun () => FieldUtils.mod_256 (x + y + carry_in))
   byte_lookup z
 
+  -- witness the output carry
   let carry_out ← witness (fun () => FieldUtils.floordiv (x + y + carry_in) 256)
   assert_bool carry_out
 
   assert_zero (x + y + carry_in - z - carry_out * (const ↑(256 : ℕ)))
+
   return {
     z := z,
     carry_out := carry_out
@@ -81,6 +80,10 @@ def spec (input : (Inputs p).value) (out : (Outputs p).value) :=
   out.z.val = (x.val + y.val + carry_in.val) % 256 ∧
   out.carry_out.val = (x.val + y.val + carry_in.val) / 256
 
+/--
+  Compute the 8-bit addition of two numbers with a carry-in bit.
+  Returns the sum and the output carry bit.
+-/
 def circuit : FormalCircuit (F p) (Inputs p) (Outputs p) where
   main := add8_full_carry
   assumptions := assumptions

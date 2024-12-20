@@ -53,6 +53,10 @@ def assumptions (input : (Inputs p).value) :=
   let ⟨x, y⟩ := input
   x.val < 256 ∧ y.val < 256
 
+/--
+  Compute the 8-bit addition of two numbers.
+  Returns the sum.
+-/
 def circuit : FormalCircuit (F p) (Inputs p) (field (F p)) where
   main := add8
   assumptions := assumptions

@@ -20,18 +20,17 @@ open Provable (field field2 fields)
 open ByteLookup
 open Expression
 
-structure add32_inputs_struct (F : Type) where
+structure InputStruct (F : Type) where
   x: U32 F
   y: U32 F
   carry_in: F
 
-def add32_full_inputs (p : ℕ) : TypePair := ⟨
-  add32_inputs_struct (Expression (F p)),
-  add32_inputs_struct (F p)
+def Inputs (p : ℕ) : TypePair := ⟨
+  InputStruct (Expression (F p)),
+  InputStruct (F p)
 ⟩
 
--- TODO: we *really* need to derive this automatically
-instance : ProvableType (F p) (add32_full_inputs p) where
+instance : ProvableType (F p) (Inputs p) where
   size := 9 -- 4 + 4 + 1
   to_vars s := vec [s.x.x0, s.x.x1, s.x.x2, s.x.x3, s.y.x0, s.y.x1, s.y.x2, s.y.x3, s.carry_in]
   from_vars v := ⟨
@@ -47,16 +46,16 @@ instance : ProvableType (F p) (add32_full_inputs p) where
   ⟩
 
 
-structure add32_output_struct (F : Type) where
+structure OutputStruct (F : Type) where
   z: U32 F
   carry_out: F
 
-def add32_full_output (p : ℕ) : TypePair := ⟨
-  add32_output_struct (Expression (F p)),
-  add32_output_struct (F p)
+def Outputs (p : ℕ) : TypePair := ⟨
+  OutputStruct (Expression (F p)),
+  OutputStruct (F p)
 ⟩
 
-instance : ProvableType (F p) (add32_full_output p) where
+instance : ProvableType (F p) (Outputs p) where
   size := 5 -- 4 + 1
   to_vars s := vec [s.z.x0, s.z.x1, s.z.x2, s.z.x3, s.carry_out]
   from_vars v := ⟨
@@ -69,7 +68,7 @@ instance : ProvableType (F p) (add32_full_output p) where
     v.get ⟨ 4, by norm_num ⟩
   ⟩
 
-def add32_full (input : (add32_full_inputs p).var) : Stateful (F p) (add32_full_output p).var := do
+def add32_full (input : (Inputs p).var) : Stateful (F p) (Outputs p).var := do
   let ⟨x, y, carry_in⟩ := input
 
   let {
@@ -97,18 +96,18 @@ def add32_full (input : (add32_full_inputs p).var) : Stateful (F p) (add32_full_
     carry_out := c3
   }
 
-def assumptions (input : (add32_full_inputs p).value) :=
+def assumptions (input : (Inputs p).value) :=
   let ⟨x, y, carry_in⟩ := input
   x.is_normalized ∧ y.is_normalized ∧ (carry_in = 0 ∨ carry_in = 1)
 
-def spec (input : (add32_full_inputs p).value) (out: (add32_full_output p).value) :=
+def spec (input : (Inputs p).value) (out: (Outputs p).value) :=
   let ⟨x, y, carry_in⟩ := input
   let ⟨z, carry_out⟩ := out
   z.value = (x.value + y.value + carry_in.val) % 2^32 ∧
   z.is_normalized ∧
   carry_out.val = (x.value + y.value + carry_in.val) / 2^32
 
-def circuit : FormalCircuit (F p) (add32_full_inputs p) (add32_full_output p) where
+def circuit : FormalCircuit (F p) (Inputs p) (Outputs p) where
   main := add32_full
   assumptions := assumptions
   spec := spec

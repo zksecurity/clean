@@ -15,6 +15,9 @@ variable [p_large_enough: Fact (p > 512)]
 
 open Circuit
 
+/--
+  A 32-bit unsigned integer is represented using four limbs of 8 bits each.
+-/
 structure U32 (T: Type) where
   x0 : T
   x1 : T
@@ -23,6 +26,9 @@ structure U32 (T: Type) where
 
 namespace U32
 
+/--
+  Witness a 32-bit unsigned integer.
+-/
 def witness (compute : Unit → U32 (F p)) := do
   let val := compute ()
   let x0 ←  witness_var (fun _ => val.x0)
@@ -37,37 +43,32 @@ def witness (compute : Unit → U32 (F p)) := do
 
   return U32.mk x0 x1 x2 x3
 
-
--- TODO: refactor those definition elsewhere
-def less_than_p [p_pos: Fact (p ≠ 0)] (x: F p) : x.val < p := by
-  rcases p
-  · have : 0 ≠ 0 := p_pos.elim; tauto
-  · exact x.is_lt
-
-def mod (x: F p) (c: ℕ+) (lt: c < p) : F p :=
-  FieldUtils.nat_to_field (x.val % c) (by linarith [Nat.mod_lt x.val c.pos, lt])
-
-def mod_256 (x: F p) : F p :=
-  mod x 256 (by linarith [p_large_enough.elim])
-
-def floordiv [Fact (p ≠ 0)] (x: F p) (c: ℕ+) : F p :=
-  FieldUtils.nat_to_field (x.val / c) (by linarith [Nat.div_le_self x.val c, less_than_p x])
-
-
-
+/--
+  A 32-bit unsigned integer is normalized if all its limbs are less than 256.
+-/
 def is_normalized (x: U32 (F p)) :=
   x.x0.val < 256 ∧ x.x1.val < 256 ∧ x.x2.val < 256 ∧ x.x3.val < 256
 
+/--
+  Return the value of a 32-bit unsigned integer over the natural numbers.
+-/
 def value (x: U32 (F p)) :=
   x.x0.val + x.x1.val * 256 + x.x2.val * 256^2 + x.x3.val * 256^3
 
+/--
+  Return a 32-bit unsigned integer from a natural number, by decomposing
+  it into four limbs of 8 bits each.
+-/
 def decompose_nat (x: ℕ) : U32 (F p) :=
-  let x0 := mod x 256 (by linarith [p_large_enough.elim])
-  let x1 := mod (floordiv x 256) 256 (by linarith [p_large_enough.elim])
-  let x2 := mod (floordiv x 256^2) 256 (by linarith [p_large_enough.elim])
-  let x3 := mod (floordiv x 256^3) 256 (by linarith [p_large_enough.elim])
+  let x0 := FieldUtils.mod x 256 (by linarith [p_large_enough.elim])
+  let x1 := FieldUtils.mod (FieldUtils.floordiv x 256) 256 (by linarith [p_large_enough.elim])
+  let x2 := FieldUtils.mod (FieldUtils.floordiv x 256^2) 256 (by linarith [p_large_enough.elim])
+  let x3 := FieldUtils.mod (FieldUtils.floordiv x 256^3) 256 (by linarith [p_large_enough.elim])
   ⟨ x0, x1, x2, x3 ⟩
 
+/--
+  Add two 32-bit unsigned integers, wrapping around on overflow over 2^32.
+-/
 def wrapping_add (x y: U32 (F p)) : U32 (F p) :=
   let val_x := x.value
   let val_y := y.value
