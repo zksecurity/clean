@@ -101,8 +101,8 @@ def circuit : FormalCircuit (F p) (Inputs p) (Outputs p) where
     -- simplify constraints hypothesis
     dsimp at h_holds
     let z := env i0
-    let carry_out := env i1
-    rw [←(by rfl : z = env i0), ←(by rfl : carry_out = env i1)] at h_holds
+    set carry_out := env i1
+    rw [←(by rfl : z = env i0)] at h_holds
     rw [hx, hy, hcarry_in] at h_holds
     let ⟨ h_byte, h_bool_carry, h_add ⟩ := h_holds
 
