@@ -194,20 +194,46 @@ theorem completeness_bool [p_neq_zero : Fact (p ≠ 0)] (x y carry_in: F p) :
   intro as_x as_y carry_in_bound
   simp
   rw [add_eq_zero_iff_eq_neg, neg_neg]
+  dsimp [FieldUtils.floordiv]
 
   -- we show that the carry_out is either 0 or 1 by explicitly
   -- constructing the two cases
-  have carry? := Nat.lt_or_ge (carry_in.val + x.val + y.val) 256
+  have carry? := Nat.lt_or_ge (x.val + y.val + carry_in.val) 256
   rcases carry? with sum_lt_256 | sum_ge_256
-  · sorry
+  · -- we want to show that the carry is 0
+    apply Or.inl
+    apply_fun ZMod.val
+    · rw [FieldUtils.val_of_nat_to_field_eq]
+      have h : (x + y + carry_in).val = x.val + y.val + carry_in.val := by
+        rw [ZMod.val_add, ZMod.val_add x]
+        simp
+        rw [(Nat.mod_eq_iff_lt p_neq_zero.elim).mpr
+          (Nat.lt_trans sum_lt_256 (by linarith [p_large_enough.elim]))]
+      rw [h]
+      rw [Nat.div_eq_of_lt sum_lt_256]
+      simp
+    · apply ZMod.val_injective
   · have sum_bound := FieldUtils.byte_sum_le_bound x y as_x as_y
-    have sum_le_511 : carry_in.val + (x + y).val ≤ 511 := by
+    have sum_le_511 : (x + y).val + carry_in.val ≤ 511 := by
       apply Nat.le_sub_one_of_lt at sum_bound
       apply Nat.le_sub_one_of_lt at carry_in_bound
       simp at sum_bound
       simp at carry_in_bound
+      rw [add_comm]
       apply Nat.add_le_add carry_in_bound sum_bound
-    rw [FieldUtils.byte_sum_do_not_wrap x y as_x as_y, ←add_assoc] at sum_le_511
-    sorry
+    rw [FieldUtils.byte_sum_do_not_wrap x y as_x as_y] at sum_le_511
+
+    -- we want to show that the carry is 1
+    apply Or.inr
+    apply_fun ZMod.val
+    · rw [FieldUtils.val_of_nat_to_field_eq]
+      have div_one : (x.val + y.val + carry_in.val) / 256 = 1 := by
+        apply Nat.div_eq_of_lt_le
+        · simp; apply sum_ge_256
+        · simp; apply Nat.lt_add_one_of_le; apply sum_le_511
+      rw [ZMod.val_one]
+      rw [FieldUtils.byte_sum_and_bit_do_not_wrap' x y carry_in as_x as_y carry_in_bound]
+      assumption
+    · apply ZMod.val_injective
 
 end Add8Theorems
