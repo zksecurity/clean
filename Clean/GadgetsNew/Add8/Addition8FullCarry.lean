@@ -11,7 +11,7 @@ import Clean.GadgetsNew.Boolean
 import Clean.GadgetsNew.Add8.Theorems
 
 namespace Add8FullCarry
-variable {p : ℕ} [Fact (p ≠ 0)] [Fact p.Prime]
+variable {p : ℕ} [p_neq_zero: Fact (p ≠ 0)] [Fact p.Prime]
 variable [p_large_enough: Fact (p > 512)]
 
 open Circuit
@@ -66,7 +66,7 @@ def add8_full_carry (input : (Inputs p).var) : Stateful (F p) (Outputs p).var :=
   let carry_out ← witness (fun () => FieldUtils.floordiv (x + y + carry_in) 256)
   assert_bool carry_out
 
-  assert_zero (x + y + carry_in - z - carry_out * (const 256))
+  assert_zero (x + y + carry_in - z - carry_out * (const ↑(256 : ℕ)))
   return {
     z := z,
     carry_out := carry_out
@@ -160,14 +160,27 @@ def circuit : FormalCircuit (F p) (Inputs p) (Outputs p) where
     let goal_add := x + y + carry_in + -1 * z + -1 * (carry_out * 256) = 0
     show goal_byte ∧ goal_bool ∧ goal_add
 
-    have z_byte : z.val < 256 := by
+    -- proving that z is contained in the Byte table is simple,
+    -- so we just do it inline aspplying the fact that every byte is contained in
+    -- the Byte table
+    have completeness1 : goal_byte := ByteTable.completeness z (by
       dsimp [z]
       simp only [FieldUtils.mod_256, FieldUtils.mod]
       rw [FieldUtils.val_of_nat_to_field_eq]
       apply Nat.mod_lt
-      linarith
-    have completeness1 : goal_byte := ByteTable.completeness z z_byte
-    simp [completeness1]
+      linarith)
 
-    sorry
+    have ⟨as_x, as_y, as_carry_in⟩ := as
+    have carry_in_bound := FieldUtils.boolean_le_2 carry_in as_carry_in
+
+    have completeness2 : goal_bool := by
+      apply Add8Theorems.completeness_bool
+      repeat assumption
+
+    have completeness3 : goal_add := by
+      apply Add8Theorems.completeness_add
+      repeat assumption
+
+    exact ⟨completeness1, completeness2, completeness3⟩
+
 end Add8FullCarry

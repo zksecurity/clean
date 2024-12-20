@@ -134,4 +134,80 @@ theorem soundness (x y out carry_in carry_out: F p):
     · exact thm.left
     · exact one_carry
 
+
+theorem completeness_add [p_neq_zero : Fact (p ≠ 0)] (x y carry_in: F p) :
+    x.val < 256 ->
+    y.val < 256 ->
+    carry_in.val < 2 ->
+    let carry_out := FieldUtils.floordiv (x + y + carry_in) 256
+    let z := FieldUtils.mod_256 (x + y + carry_in)
+    x + y + carry_in + -1 * z + -1 * (carry_out * 256) = 0 := by
+  intro as_x as_y carry_in_bound
+  simp
+  rw [←sub_eq_add_neg, sub_eq_zero, add_eq_of_eq_sub]
+  ring_nf
+  dsimp [FieldUtils.mod_256, FieldUtils.mod]
+
+  -- lift everything to the naturals
+  apply_fun ZMod.val
+  · simp [ZMod.val_add (FieldUtils.floordiv (x + y + carry_in) 256 * 256)]
+    dsimp [FieldUtils.floordiv]
+    rw [ZMod.val_mul, FieldUtils.val_of_nat_to_field_eq, FieldUtils.val_of_nat_to_field_eq]
+    repeat rw [ZMod.val_add]
+    simp
+
+    -- we need to show that the sum does not wrap around
+    set T := ZMod.val x + ZMod.val y + ZMod.val carry_in
+    have T_not_wrap : T % p = T := by
+      dsimp [T]
+      rw [Nat.mod_eq_iff_lt p_neq_zero.elim]
+      have sum_bound := FieldUtils.byte_sum_le_bound x y as_x as_y
+      have sum_lt_512 : (x + y).val + carry_in.val ≤ 511 := by
+        apply Nat.le_sub_one_of_lt at sum_bound
+        apply Nat.le_sub_one_of_lt at carry_in_bound
+        simp at sum_bound
+        simp at carry_in_bound
+        apply Nat.add_le_add sum_bound carry_in_bound
+      have sum_lt_p : (x + y).val + carry_in.val < p := Nat.lt_trans
+        (by apply Nat.lt_add_one_of_le at sum_lt_512; assumption) p_large_enough.elim
+      rw [FieldUtils.byte_sum_do_not_wrap x y as_x as_y] at sum_lt_p
+      assumption
+    rw [T_not_wrap]
+
+    -- now we just need to prove a simple result about euclidean division over T
+    have obv : (256 : F p).val = 256 % p := ZMod.val_natCast _
+    have h : T / 256 * (ZMod.val (256 : F p)) + T % 256 = T := by
+      rw [mul_comm, obv]
+      rw [(Nat.mod_eq_iff_lt (m:=256) p_neq_zero.elim).mpr
+        (Nat.lt_trans (by norm_num) p_large_enough.elim), Nat.div_add_mod]
+
+    rw [h, T_not_wrap]
+  · apply ZMod.val_injective
+
+
+theorem completeness_bool [p_neq_zero : Fact (p ≠ 0)] (x y carry_in: F p) :
+    x.val < 256 ->
+    y.val < 256 ->
+    carry_in.val < 2 ->
+    let carry_out := FieldUtils.floordiv (x + y + carry_in) 256
+    carry_out * (carry_out + -1 * 1) = 0 := by
+  intro as_x as_y carry_in_bound
+  simp
+  rw [add_eq_zero_iff_eq_neg, neg_neg]
+
+  -- we show that the carry_out is either 0 or 1 by explicitly
+  -- constructing the two cases
+  have carry? := Nat.lt_or_ge (carry_in.val + x.val + y.val) 256
+  rcases carry? with sum_lt_256 | sum_ge_256
+  · sorry
+  · have sum_bound := FieldUtils.byte_sum_le_bound x y as_x as_y
+    have sum_le_511 : carry_in.val + (x + y).val ≤ 511 := by
+      apply Nat.le_sub_one_of_lt at sum_bound
+      apply Nat.le_sub_one_of_lt at carry_in_bound
+      simp at sum_bound
+      simp at carry_in_bound
+      apply Nat.add_le_add carry_in_bound sum_bound
+    rw [FieldUtils.byte_sum_do_not_wrap x y as_x as_y, ←add_assoc] at sum_le_511
+    sorry
+
 end Add8Theorems
